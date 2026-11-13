@@ -9,6 +9,7 @@ import config
 import db
 import download
 import jobs
+import ui_ausliefern
 import zugang
 
 
@@ -51,6 +52,7 @@ def create_app(db_pfad: str | None = None) -> Flask:
     app.register_blueprint(api.bp)
     app.register_blueprint(zugang.bp)
     app.register_blueprint(download.bp)
+    app.register_blueprint(ui_ausliefern.bp)
 
     @app.errorhandler(413)
     def _zu_gross(_):
