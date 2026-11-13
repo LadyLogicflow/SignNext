@@ -7,38 +7,73 @@ let token = null;
 document.addEventListener('DOMContentLoaded', () => {
     token = window.location.hash.substring(1);
     if (!token) {
-        showError('Kein gültiger Download-Link');
+        document.getElementById('download-form').classList.add('hidden');
+        document.getElementById('no-token').classList.remove('hidden');
         return;
     }
     history.replaceState(null, '', window.location.pathname);
 
-    document.getElementById('loading').classList.add('hidden');
-    document.getElementById('download-ready').classList.remove('hidden');
-    document.getElementById('btn-download').addEventListener('click', downloadFile);
+    document.getElementById('form-download').addEventListener('submit', downloadFile);
+    document.getElementById('code').addEventListener('input', validateCode);
 });
 
-async function downloadFile() {
+function validateCode() {
+    const input = document.getElementById('code').value;
+    const cleaned = input.replace(/\./g, '');
+
+    if (cleaned.length === 6 && /^\d{6}$/.test(cleaned)) {
+        hideError('code-error');
+        return true;
+    }
+    return false;
+}
+
+async function downloadFile(e) {
+    e.preventDefault();
+
+    const code = document.getElementById('code').value.replace(/\./g, '');
+    if (!/^\d{6}$/.test(code)) {
+        showError('code-error', 'Bitte im Format TT.MM.JJ eingeben');
+        return;
+    }
+
     try {
         const res = await fetch(API, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({token})
+            body: JSON.stringify({token, code})
         });
 
-        if (res.status === 404) {
+        if (res.status === 401) {
             const data = await res.json();
-            showError(data.meldung || data.error || 'Download nicht gefunden');
+            if (data.error === 'angaben_stimmen_nicht') {
+                const {versuch, von, gesperrt} = data;
+                const info = document.getElementById('versuch-info');
+
+                if (gesperrt) {
+                    showError('code-error', 'Der Link ist gesperrt. Bitte wenden Sie sich an Ihre Beratungsstelle');
+                    document.getElementById('code').disabled = true;
+                    document.getElementById('btn-download').disabled = true;
+                    info.classList.add('hidden');
+                } else {
+                    showError('code-error', 'Das Geburtsdatum stimmt nicht');
+                    info.textContent = `Versuch ${versuch} von ${von}`;
+                    info.classList.remove('hidden');
+                }
+            } else {
+                showError('code-error', data.meldung || 'Zugriff verweigert');
+            }
             return;
         }
 
         if (res.status === 429) {
-            showError('Bitte später erneut');
+            showError('code-error', 'Zu viele Versuche, bitte später erneut');
             return;
         }
 
         if (!res.ok) {
             const data = await res.json();
-            showError(data.meldung || data.error || 'Download fehlgeschlagen');
+            showError('code-error', data.meldung || 'Download fehlgeschlagen');
             return;
         }
 
@@ -55,16 +90,24 @@ async function downloadFile() {
         const abrufMax = res.headers.get('X-Abruf-Max');
         if (abruf && abrufMax) {
             const infoEl = document.getElementById('download-info');
+            const abrufInfoDiv = document.getElementById('abruf-info');
             infoEl.textContent = `Abruf ${abruf} von ${abrufMax}`;
+            abrufInfoDiv.classList.remove('hidden');
         }
+
+        hideError('code-error');
+        document.getElementById('versuch-info').classList.add('hidden');
     } catch (err) {
-        showError(err.message);
+        showError('code-error', err.message);
     }
 }
 
-function showError(msg) {
-    const errorDiv = document.getElementById('error');
-    const errorText = document.getElementById('error-text');
-    errorText.textContent = msg;
-    errorDiv.classList.remove('hidden');
+function showError(id, msg) {
+    const el = document.getElementById(id);
+    el.textContent = msg;
+    el.classList.remove('hidden');
+}
+
+function hideError(id) {
+    document.getElementById(id).classList.add('hidden');
 }

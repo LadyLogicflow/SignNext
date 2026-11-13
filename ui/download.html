@@ -13,20 +13,33 @@
         </header>
 
         <main id="app">
-            <div id="loading" class="loading">Lade Download...</div>
-
-            <div id="error" class="hidden">
-                <div class="error" id="error-text"></div>
+            <div id="download-form">
+                <section class="card">
+                    <h2>Download</h2>
+                    <div class="info-box">
+                        <p>Bitte geben Sie Ihr Geburtsdatum ein, um das Dokument herunterzuladen.</p>
+                    </div>
+                    <form id="form-download">
+                        <div class="form-group">
+                            <label for="code">Geburtsdatum</label>
+                            <input type="text" id="code" placeholder="TT.MM.JJ" maxlength="8" required>
+                            <small>Format: TT.MM.JJ</small>
+                            <div id="code-error" class="error hidden"></div>
+                            <div id="versuch-info" class="warning hidden"></div>
+                        </div>
+                        <button type="submit" class="btn btn-primary" id="btn-download">Herunterladen</button>
+                    </form>
+                    <div class="info-box" id="abruf-info" style="margin-top: 1rem;" class="hidden">
+                        <p id="download-info"></p>
+                    </div>
+                </section>
             </div>
 
-            <div id="download-ready" class="hidden">
+            <div id="no-token" class="hidden">
                 <section class="card">
-                    <h2>Download bereit</h2>
-                    <div class="info-box">
-                        <p id="download-info"></p>
-                        <p><small>Bei Neuladen der Seite bitte den Link aus der E-Mail neu öffnen.</small></p>
+                    <div class="error">
+                        Bitte öffnen Sie den Link aus der E-Mail erneut.
                     </div>
-                    <button id="btn-download" class="btn btn-primary">Dokument herunterladen</button>
                 </section>
             </div>
         </main>
