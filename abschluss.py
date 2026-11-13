@@ -14,11 +14,13 @@ from datetime import datetime, timedelta, timezone
 
 from pypdf import PdfReader, PdfWriter
 from reportlab.lib.utils import ImageReader
+from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
 
 import abgleich
 import config
 import db
+import texte
 
 LOG = logging.getLogger("signnext")
 ABSCHLUSS_ROLLEN = ("S", "N")
@@ -107,11 +109,23 @@ def nachweis_pdf(vorgang_id: int, hash_vorher: str, hash_nachher: str, unterschr
         zustand["y"] = 800.0
 
     def zeile(text: str, groesse: float = 9.5, schrift: str = "Helvetica", abstand: float = 13.0, x: float = 56.0):
-        if zustand["y"] < 60:
-            neue_seite()
-        c.setFont(schrift, groesse)
-        c.drawString(x, zustand["y"], text)
-        zustand["y"] -= abstand
+        """Eine Zeile; zu lange Zeilen werden an Wortgrenzen umbrochen (nichts darf über den Seitenrand laufen)."""
+        breite = 595.28 - 56.0 - x
+        zeilen, aktuell = [], ""
+        for wort in text.split(" "):
+            probe = (aktuell + " " + wort) if aktuell else wort
+            if aktuell and stringWidth(probe, schrift, groesse) > breite:
+                zeilen.append(aktuell)
+                aktuell = wort
+            else:
+                aktuell = probe
+        zeilen.append(aktuell)
+        for z in zeilen:
+            if zustand["y"] < 60:
+                neue_seite()
+            c.setFont(schrift, groesse)
+            c.drawString(x, zustand["y"], z)
+            zustand["y"] -= abstand
 
     zeile("Nachweisprotokoll zur Unterschrift", 15, "Helvetica-Bold", 22)
     zeile("Vorgang Nr. %d" % int(vorgang_id), 11, "Helvetica-Bold", 16)
@@ -143,7 +157,7 @@ def nachweis_pdf(vorgang_id: int, hash_vorher: str, hash_nachher: str, unterschr
         "Die Prüfsumme nach dem Einbetten gilt für die Datei in der Form, wie sie von SignNext ausgegeben wurde.",
     ]
     if not textkennung_frei:
-        hinweise.append("Die angezeigten Texte waren zum Zeitpunkt der Unterschrift noch nicht freigegeben (Entwurf).")
+        hinweise.append("Die angezeigten Texte waren zum Zeitpunkt der Unterschrift noch nicht freigegeben (Freigabe offen).")
     for h in hinweise:
         zeile(h, 8.5, "Helvetica", 12)
     c.showPage()
@@ -212,7 +226,7 @@ def _abschliessen(mandant_ref: str, vorgang_id: int) -> None:
     fertig = einbetten(quelle, stellen, v["personen"], {u["person"]: bytes(u["bild"]) for u in zeilen})
     hash_nachher = hashlib.sha256(fertig).hexdigest()
     jetzt = db.jetzt()
-    protokoll = nachweis_pdf(vorgang_id, hash_vorher, hash_nachher, zeilen, jetzt, all(not (u["text_kennung"] or "").startswith("entwurf") for u in zeilen))
+    protokoll = nachweis_pdf(vorgang_id, hash_vorher, hash_nachher, zeilen, jetzt, all(texte.FREIGABE_OFFEN not in (u["text_kennung"] or "") for u in zeilen))
     seiten = len(PdfReader(io.BytesIO(fertig)).pages)
     db.dokument_speichern(mandant_ref, vorgang_id, "S", fertig, hash_nachher, seiten, [])
     db.dokument_speichern(mandant_ref, vorgang_id, "N", protokoll, hashlib.sha256(protokoll).hexdigest(), len(PdfReader(io.BytesIO(protokoll)).pages), [])

@@ -596,12 +596,12 @@ class TestSchritte(ZugangBasis):
         for text in t.values():
             self.assertNotRegex(text, r"[{}]")
         self.assertIn("Beratungsstelle Beispiel, Musterweg 1, 12345 Musterstadt", t["datenschutz"])
-        self.assertIn("IP-Adresse (ungekürzt)", t["datenschutz"])
+        self.assertIn("IP-Adresse (ungekürzt gespeichert)", t["datenschutz"])
         self.assertIn("90 Tage nach der Unterschrift", t["datenschutz"])
         self.assertIn("https://bst.example/datenschutz", t["datenschutz"])
         self.assertIn("§ 126 BGB", t["unterschriftssatz"])
         self.assertEqual(t["haken"], "Ich habe die Datenschutzinformation gelesen und möchte das Dokument unterschreiben.")
-        self.assertTrue(j["kennung"].startswith("entwurf") and j["freigegeben"] is False)
+        self.assertTrue("Freigabe offen" in j["kennung"] and j["kennung"].startswith("SignNext-Datenschutzhinweis-Unterschriftsseite-1.0") and j["freigegeben"] is False)
         kanonisch = json.dumps({"kennung": j["kennung"], "texte": t}, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         self.assertEqual(j["hash"], hashlib.sha256(kanonisch.encode("utf-8")).hexdigest())
 
@@ -613,7 +613,7 @@ class TestSchritte(ZugangBasis):
         with mock.patch.dict(os.environ, {"SIGNNEXT_AUFBEWAHRUNG_TAGE": "30", "SIGNNEXT_IP_SPEICHERUNG": "gekuerzt"}):
             j = self.texte_holen()
         self.assertIn("30 Tage nach der Unterschrift", j["texte"]["datenschutz"])
-        self.assertIn("IP-Adresse (gekürzt)", j["texte"]["datenschutz"])
+        self.assertIn("IP-Adresse (gekürzt gespeichert)", j["texte"]["datenschutz"])
         self.assertNotIn("ungekürzt", j["texte"]["datenschutz"])
         self.assertNotEqual(j["hash"], h1)
         self.einstellungen_setzen()
@@ -633,12 +633,12 @@ class TestSchritte(ZugangBasis):
         self.assertEqual((r.status_code, r.get_json()["error"]), (503, "texte_fehlen"))
 
     def test_texte_im_repo_sind_vollstaendig(self):
-        for n in texte.NAMEN:
-            self.assertTrue(texte._roh(n))
-        self.assertIn("{verantwortlicher}", texte._roh("datenschutz"))
-        self.assertIn("{ip_behandlung}", texte._roh("datenschutz"))
-        self.assertIn("{aufbewahrung_tage}", texte._roh("datenschutz"))
-        self.assertIn("{datenschutz_link}", texte._roh("datenschutz"))
+        for n in ("datenschutz_mit_link", "datenschutz_ohne_link", "unterschriftssatz", "haken", "ausstieg", "zugangshinweis"):
+            self.assertTrue(texte._roh(n), n)
+        self.assertIn("{verantwortlicher}", texte._roh("datenschutz_mit_link"))
+        self.assertIn("{ip_behandlung}", texte._roh("datenschutz_mit_link"))
+        self.assertIn("{aufbewahrung_tage}", texte._roh("datenschutz_mit_link"))
+        self.assertIn("{datenschutz_link}", texte._roh("datenschutz_mit_link"))
 
 
 # ======================================================================================================== Unterschrift

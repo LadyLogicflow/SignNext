@@ -142,7 +142,12 @@ class TestAbschluss(B5):
         self.assertIn("Unterschrift von Person 2", text)
         self.assertRegex(text, r"\d\d\.\d\d\.\d{4} \d\d:\d\d:\d\d (MEZ|MESZ)")
         self.assertIn("nicht kryptografisch signiert", text)
-        self.assertIn("Entwurf", text)                                             # Textfassung ist noch nicht freigegeben
+        self.assertIn("noch nicht freigegeben (Freigabe offen)", text)                # Hinweis im Nachweis, solange die Texte nicht freigegeben sind
+        self.assertIn("SignNext-Datenschutzhinweis-Unterschriftsseite-1.0", text)
+        self.assertIn("SignNext-Ausstieg-1.0", text)                                   # die lange Kennung läuft nicht über den Seitenrand (Umbruch)
+        for seite in PdfReader(io.BytesIO(nachweis)).pages:
+            for teil in seite.extract_text().splitlines():
+                self.assertLess(len(teil), 140, teil)
         for verboten in pdfs.PERSONENDATEN + ("rechtssicher",):
             self.assertNotIn(verboten, text)
 
@@ -932,6 +937,99 @@ class TestFristImText(B5):
         self.assertNotIn("\nBcc", t)
 
 
+# ======================================================================================================== Texte von Irony (Hash des Quelltextes)
+
+IRONY_HASHES = {
+    "datenschutz_mit_link": "d3f4d169b1069377722643c1857de2d465cd52c68c3b7f2c837cabe00d67d6bf",
+    "datenschutz_ohne_link": "4aeabd21877c19f4d6c3ea4bd4ce4f454a4f6db8102f11b780e784bb9d91fef7",
+    "unterschriftssatz": "94acb868108539405aac85f72d8b5a57693d11b7945e0dc4f75973e1f44561d0",
+    "haken": "2642ea4cf9313a1bbbbc0544c35ab8f62c8e4b1c5a195a675b6eb264f9bb2a8d",
+    "ausstieg": "7d18743423df39a9b26239a1835f589153de8054b3bb04198fbe38122f2d1324",
+}
+
+
+class TestIronyTexte(B5):
+    def roh(self, name):
+        with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "texte", name + ".txt"), "rb") as f:
+            return f.read()
+
+    def test_hash_des_quelltextes_ist_der_freigegebene_wert(self):
+        import hashlib
+        for name, soll in IRONY_HASHES.items():
+            daten = self.roh(name)
+            self.assertEqual(hashlib.sha256(daten).hexdigest(), soll, name)             # Datei = Template: UTF-8, ein Absatz, kein Umbruch am Ende
+            self.assertFalse(daten.endswith(b"\n"), name)
+            self.assertNotIn(b"\n", daten, name)
+            self.assertFalse(daten.startswith((b'"', "„".encode())) or daten.endswith(("“".encode(), b'"')), name)
+
+    def test_variablen_sind_benannt(self):
+        erlaubt = {"verantwortlicher", "ip_behandlung", "aufbewahrung_tage", "datenschutz_link"}
+        for name in IRONY_HASHES:
+            gefunden = set(re.findall(r"\{([a-z_]+)\}", self.roh(name).decode("utf-8")))
+            self.assertLessEqual(gefunden, erlaubt, name)
+        self.assertIn("datenschutz_link", re.findall(r"\{([a-z_]+)\}", self.roh("datenschutz_mit_link").decode()))
+        self.assertNotIn("{datenschutz_link}", self.roh("datenschutz_ohne_link").decode())
+
+    def test_ohne_link_gilt_die_fassung_ohne_link(self):
+        import texte
+        with db.verbindung() as c:
+            c.execute("UPDATE stelle_einstellung SET datenschutz_link='   '")
+        t = texte.laden("1001")["texte"]["datenschutz"]
+        self.assertTrue(t.endswith("Weitere Informationen erhalten Sie von Ihrer Beratungsstelle."))
+        self.assertNotIn("http", t)
+        self.assertNotIn("{", t)
+        with db.verbindung() as c:
+            c.execute("UPDATE stelle_einstellung SET datenschutz_link='https://bst.example/datenschutz'")
+        self.assertTrue(texte.laden("1001")["texte"]["datenschutz"].endswith("Weitere Informationen: https://bst.example/datenschutz."))
+
+    def test_ip_behandlung_wortlaut(self):
+        import texte
+        for modus, soll in (("gekuerzt", "IP-Adresse (gekürzt gespeichert)"), ("voll", "IP-Adresse (ungekürzt gespeichert)")):
+            with mock.patch.dict(os.environ, {"SIGNNEXT_IP_SPEICHERUNG": modus}):
+                self.assertIn(soll, texte.laden("1001")["texte"]["datenschutz"], modus)
+
+    def test_kennung_und_freigabe_offen(self):
+        import texte
+        self.assertFalse(texte.freigegeben())
+        self.assertEqual(texte.kennung(), "SignNext-Datenschutzhinweis-Unterschriftsseite-1.0; SignNext-Unterschriftssatz-1.0; SignNext-Zustimmungshaken-1.0; SignNext-Ausstieg-1.0 (Freigabe offen)")
+        with mock.patch.object(texte, "ORDNER", self.freigabe_ordner("erteilt")):
+            self.assertTrue(texte.freigegeben())
+            self.assertNotIn("Freigabe offen", texte.kennung())
+        with mock.patch.object(texte, "ORDNER", self.freigabe_ordner("erteilt ")):
+            self.assertTrue(texte.freigegeben())
+        for wert in ("", "offen", "ja", "ERTEILT", "entwurf"):
+            with mock.patch.object(texte, "ORDNER", self.freigabe_ordner(wert)):
+                self.assertFalse(texte.freigegeben(), wert)
+
+    def freigabe_ordner(self, wert):
+        import pathlib
+        import shutil
+        import tempfile
+        ziel = pathlib.Path(tempfile.mkdtemp(prefix="texte_freigabe_"))
+        quelle = pathlib.Path(texte_ordner())
+        for p in quelle.iterdir():
+            shutil.copy(p, ziel / p.name)
+        (ziel / "FREIGABE").write_text(wert, encoding="utf-8")
+        self.addCleanup(shutil.rmtree, ziel, True)
+        return ziel
+
+    def test_nachweis_und_antwort_tragen_die_kennung(self):
+        self.starten()
+        self.einloggen()
+        self.lesen_n(SEITEN)
+        j = self.texte_holen()
+        self.assertFalse(j.get("freigegeben", False))
+        self.sign(1, j["hash"])
+        with db.verbindung() as c:
+            kennung = c.execute("SELECT text_kennung FROM unterschrift").fetchone()[0]
+        self.assertIn("Freigabe offen", kennung)
+
+
+def texte_ordner():
+    import texte
+    return texte.ORDNER
+
+
 # ======================================================================================================== Thread, Betrieb
 
 class TestBetrieb(unittest.TestCase):
@@ -967,7 +1065,7 @@ class TestBetrieb(unittest.TestCase):
 
     def test_version_und_abhaengigkeiten(self):
         wurzel = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.assertEqual(open(os.path.join(wurzel, "VERSION")).read().strip(), "0.5.1")
+        self.assertEqual(open(os.path.join(wurzel, "VERSION")).read().strip(), "0.5.2")
         req = open(os.path.join(wurzel, "requirements.txt")).read()
         self.assertRegex(req, r"(?m)^reportlab==\d+\.\d+\.\d+$")
         self.assertNotRegex(req.lower(), r"pymupdf|fitz")
