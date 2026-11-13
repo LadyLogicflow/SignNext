@@ -3,7 +3,7 @@
 B = Anschreiben/Vollständigkeitserklärung: weiße Zeile ``Mitgliedsnummer; Vorname; Name; E-Mail`` auf Seite 1, Unterschriftsblöcke
    (Zeile ``Ort, TT.MM.JJJJ``, darunter eine Zeile aus Unterstrichen, darunter die Namen).
 A = Elster-/Steuersoft-Protokoll: eine Unterschriftsstelle (Unterstrichzeile, darunter ``Datum, Unterschrift, …``), Mitgliedsnummer nach der Zeile
-   ``15720 FV NRW`` im Block ``Bei der Anfertigung dieser Erklärung hat mitgewirkt:``.
+   einzelne 7-stellige Zeile direkt vor ``Die Steuererklärung wurde unter Mitwirkung`` im Block ``Bei der Anfertigung dieser Erklärung hat mitgewirkt:``.
 Erkannt wird am Aufbau (Textanker), nie am Dateinamen. Alles Mehrdeutige oder Fehlende bleibt leer (kein Raten).
 Koordinaten: PDF-Punkte, Ursprung unten links, je Stelle ``seite`` (ab 1), ``x0, y0, x1, y1``, ``person`` (1 oder 2)."""
 import io
@@ -14,7 +14,6 @@ import pdfplumber
 from pdf_pruefung import Abgelehnt, pruefe
 
 MITWIRKUNG = "bei der anfertigung dieser erklärung hat mitgewirkt"
-MITWIRKUNG_ZEILE = re.compile(r"^15720\s+FV\s+NRW$")
 SIG_DATUM = re.compile(r"^.{1,60},\s*\d{2}\.\d{2}\.\d{4}\s*$")
 MAIL = re.compile(r"^[^@\s;,<>]{1,64}@[^@\s;,<>]{1,190}\.[^@\s;,<>]{2,24}$")
 STEUERNUMMER = re.compile(r"\d{2,3}/\d{3,4}/\d{4,5}")
@@ -193,22 +192,20 @@ def _werte_a(seiten: list, hinweise: list) -> dict:
         werte["name"] = name
     if vorname:
         werte["vorname"] = vorname
-    # Mitgliedsnummer nur über die Lage: Anker, dann genau eine Zeile '15720 FV NRW', direkt danach genau 7 Ziffern, direkt danach
-    # 'Die Steuererklärung wurde unter Mitwirkung'. Alles andere (zweiter Anker, zweite FV-Zeile, andere Reihenfolge) gilt als mehrdeutig.
+    # Mitgliedsnummer nur über die Lage: Im Block "Bei der Anfertigung dieser Erklärung hat mitgewirkt:" steht genau EINE Zeile aus 7 Ziffern, und sie steht
+    # direkt vor dem Satz "Die Steuererklärung wurde unter Mitwirkung ...". Die Zeile davor (Ehepaar-Beispiel: "15720 FV NRW", Einzelperson-Beispiel: zwei Zahlen)
+    # ist nicht maßgeblich. Mehrere 7-stellige Zeilen im Block, eine andere Zeile dazwischen oder keine solche Zeile: leer (nichts raten).
     kandidaten = []
     for _, zeilen in seiten:
         for i, z in enumerate(zeilen):
             if MITWIRKUNG not in _norm(z["text"]).lower():
                 continue
             ende = next((k for k in range(i + 1, min(i + 20, len(zeilen))) if _norm(zeilen[k]["text"]).startswith("Die Steuererklärung wurde unter Mitwirkung")), None)
-            if ende is None or ende - i < 3:
+            if ende is None or ende - i < 2:
                 kandidaten.append(None)
                 continue
-            fv = [k for k in range(i + 1, ende) if MITWIRKUNG_ZEILE.match(_norm(zeilen[k]["text"]))]
-            if len(fv) == 1 and fv[0] == ende - 2 and re.fullmatch(r"\d{7}", _norm(zeilen[ende - 1]["text"])):
-                kandidaten.append(_norm(zeilen[ende - 1]["text"]))
-            else:
-                kandidaten.append(None)
+            sieben = [k for k in range(i + 1, ende) if re.fullmatch(r"\d{7}", _norm(zeilen[k]["text"]))]
+            kandidaten.append(_norm(zeilen[sieben[0]]["text"]) if len(sieben) == 1 and sieben[0] == ende - 1 else None)
     if len(kandidaten) == 1 and kandidaten[0]:
         werte["mitgliedsnr"] = kandidaten[0]
     elif len(kandidaten) > 1:

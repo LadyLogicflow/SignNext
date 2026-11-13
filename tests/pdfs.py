@@ -86,7 +86,7 @@ def b_pdf(personen=2, weiss="rgb", weisse_zeile="{mnr}; {vorname}; {name}; {mail
     return puffer.getvalue()
 
 
-def a_pdf(ehegatte=True, stnr=STNR, id_a=ID_A, id_b=ID_B, mnr=MNR, mitwirkung=True, fv_zeile="15720 FV NRW", doppelt=False, seiten=12, kind_ids=True,
+def a_pdf(ehegatte=True, stnr=STNR, id_a=ID_A, id_b=ID_B, mnr=MNR, mitwirkung=True, fv_zeile="15720 FV NRW", doppelt=False, nach_der_nummer=None, mitwirkung_satz=True, seiten=12, kind_ids=True,
           zweiter_block=False, unterschrift_text="Datum, Unterschrift, gegebenenfalls Unterschrift Ehegatte / Lebenspartner(in)"):
     """Steuerprotokoll: Wasserzeichen und Kopfzeile auf jeder Seite, Hauptvordruck auf Seite 1, Mitwirkungsblock mit Unterschriftsstelle auf der vorletzten Seite."""
     puffer = io.BytesIO()
@@ -119,12 +119,16 @@ def a_pdf(ehegatte=True, stnr=STNR, id_a=ID_A, id_b=ID_B, mnr=MNR, mitwirkung=Tr
             _zeile(c, 417, "Bei der Anfertigung dieser Erklärung hat mitgewirkt:" if mitwirkung else "Anderer Block:", x=82)
             for i, t in enumerate(["Beispiel Beratungsstelle e.V.", "Musterweg 1", "12345 Musterstadt"]):
                 _zeile(c, 436 + 12 * i, t, x=82)
-            _zeile(c, 507, fv_zeile, x=82)
+            if fv_zeile:
+                _zeile(c, 507, fv_zeile, x=82)
             _zeile(c, 519, mnr, x=82)
             if doppelt:
                 _zeile(c, 531, "15720 FV NRW", x=82)
                 _zeile(c, 543, "7654321", x=82)
-            _zeile(c, 560, "Die Steuererklärung wurde unter Mitwirkung einer selbständig tätigen Person erstellt.", x=82)
+            if nach_der_nummer:
+                _zeile(c, 531, nach_der_nummer, x=82)
+            if mitwirkung_satz:
+                _zeile(c, 560, "Die Steuererklärung wurde unter Mitwirkung einer selbständig tätigen Person erstellt.", x=82)
             _zeile(c, 617, "Die vorstehenden Daten dieser Steuererklärung wurden geprüft.", x=82)
             _zeile(c, 697, " ".join(["_" * 37] * (2 if True else 1)), x=82)
             _zeile(c, 715, unterschrift_text, x=82)

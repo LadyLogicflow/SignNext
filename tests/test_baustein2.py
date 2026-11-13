@@ -225,11 +225,25 @@ class TestWerte(unittest.TestCase):
         self.assertEqual(analyse(pdfs.a_pdf(ehegatte=False))["werte"]["ids"], [pdfs.ID_A])
 
     def test_mitgliedsnummer_nur_ueber_die_lage(self):
-        self.assertNotIn("mitgliedsnr", analyse(pdfs.a_pdf(fv_zeile="99999 FV XYZ"))["werte"])      # Anker fehlt
         self.assertNotIn("mitgliedsnr", analyse(pdfs.a_pdf(mnr="12345"))["werte"])                   # keine 7 Ziffern
         self.assertNotIn("mitgliedsnr", analyse(pdfs.a_pdf(mnr="1234567X"))["werte"])
-        e = analyse(pdfs.a_pdf(doppelt=True))                                                         # zwei Kandidaten
+        self.assertNotIn("mitgliedsnr", analyse(pdfs.a_pdf(mnr="12345678"))["werte"])                # 8 Ziffern
+        e = analyse(pdfs.a_pdf(doppelt=True))                                                         # zwei 7-stellige Zeilen im Block: mehrdeutig
         self.assertNotIn("mitgliedsnr", e["werte"])
+
+    def test_mitgliedsnummer_beide_layouts(self):
+        """Ehepaar-Beispiel (Zeile \"15720 FV NRW\" davor), Einzelperson-Beispiel (zwei Zahlen davor), und ganz ohne Zeile davor: immer die einzelne 7-stellige Zeile."""
+        for davor in ("15720 FV NRW", "12345 7654321", "99999 FV XYZ", None):
+            e = analyse(pdfs.a_pdf(fv_zeile=davor))
+            self.assertEqual(e["werte"].get("mitgliedsnr"), pdfs.MNR, davor)
+
+    def test_mitgliedsnummer_nur_direkt_vor_dem_satz(self):
+        """Eine 7-stellige Zeile, die nicht direkt vor 'Die Steuererklärung wurde unter Mitwirkung' steht, zählt nicht."""
+        self.assertNotIn("mitgliedsnr", analyse(pdfs.a_pdf(nach_der_nummer="Noch eine Zeile dazwischen"))["werte"])
+
+    def test_mitgliedsnummer_fehlt(self):
+        self.assertNotIn("mitgliedsnr", analyse(pdfs.a_pdf(mnr=""))["werte"])
+        self.assertNotIn("mitgliedsnr", analyse(pdfs.a_pdf(mitwirkung_satz=False))["werte"])      # Satz danach fehlt: Lage nicht belegt
 
     def test_werte_b(self):
         w = analyse(pdfs.b_pdf())["werte"]
@@ -633,6 +647,25 @@ class TestEchteTestdateien(unittest.TestCase):
         self.assertLessEqual(ea["seiten"], pdf_pruefung.MAX_SEITEN)
         self.assertIn("mail", eb["werte"])
         self.assertEqual(abgleich.abgleichen(ea["werte"], eb["werte"])["status"], "automatisch")
+
+
+import glob
+
+EINZEL = glob.glob("/workspace/room-files/roomfile-025761cd-3b07-45e9-ae57-e1bf36fab1f4_94307009-851a-46ff-97dd-df98db4fb3b5_31d98a.pdf")
+
+
+@unittest.skipUnless(EINZEL, "echtes Einzelperson-Beispiel nicht vorhanden (optionaler Messlauf)")
+class TestEchtesEinzelpersonBeispiel(unittest.TestCase):
+    """Optional, nur lokal, gibt nichts aus: Das Einzelperson-Beispiel zu Dokument A wird angenommen, richtig erkannt, die Mitgliedsnummer gefunden."""
+
+    def test_erkennung(self):
+        with open(EINZEL[0], "rb") as f:
+            e = pdf_eingang.auswerten(f.read())
+        self.assertEqual((e["typ"], e["seiten"], e["personen"]), ("A", 6, None))
+        self.assertEqual(sorted((s["seite"], s["person"]) for s in e["stellen"]), [(5, 1), (5, 2)])
+        self.assertNotIn("a_nennt_ehegatten", e["hinweise"])
+        self.assertEqual(len(e["werte"]["ids"]), 1)
+        self.assertRegex(e["werte"].get("mitgliedsnr", ""), r"^\d{7}$")
 
 
 if __name__ == "__main__":
