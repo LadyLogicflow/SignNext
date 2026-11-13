@@ -90,6 +90,69 @@ CREATE TABLE IF NOT EXISTS versand (
     message_id TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_versand_zeit ON versand(mandant_ref, zeit);
+-- Angaben der Beratungsstelle für die Datenschutzinformation auf der Unterschriftsseite (Verantwortliche Stelle, Link zu ihrer Datenschutzerklärung).
+CREATE TABLE IF NOT EXISTS stelle_einstellung (
+    mandant_ref TEXT PRIMARY KEY,
+    verantwortlicher TEXT NOT NULL,
+    datenschutz_link TEXT NOT NULL,
+    geaendert_am TEXT NOT NULL,
+    geaendert_von TEXT NOT NULL
+);
+-- Sitzung des Mitglieds nach erfolgreicher Code-Prüfung: nur der Hash des Cookie-Werts wird gespeichert. Schritte werden serverseitig erzwungen.
+CREATE TABLE IF NOT EXISTS sitzung (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_hash TEXT NOT NULL UNIQUE,
+    link_id INTEGER NOT NULL REFERENCES link(id),
+    vorgang_id INTEGER NOT NULL REFERENCES vorgang(id),
+    mandant_ref TEXT NOT NULL,
+    erstellt TEXT NOT NULL,
+    laeuft_ab TEXT NOT NULL,
+    seiten_geliefert TEXT NOT NULL DEFAULT '[]',
+    gelesen_am TEXT,
+    texte_angezeigt_am TEXT,
+    texte_kennung TEXT,
+    texte_hash TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_sitzung_vorgang ON sitzung(mandant_ref, vorgang_id);
+-- Je Unterschrift: nur das Bild (keine biometrischen Merkmale), Zeitpunkte, Nachweis des angezeigten Textes, IP (laut Einstellung), grobe Gerätekennung.
+CREATE TABLE IF NOT EXISTS unterschrift (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    vorgang_id INTEGER NOT NULL REFERENCES vorgang(id),
+    mandant_ref TEXT NOT NULL,
+    person INTEGER NOT NULL,
+    bild BLOB NOT NULL,
+    bild_sha256 TEXT NOT NULL,
+    zeit_texte_angezeigt TEXT NOT NULL,
+    zeit_unterschrift TEXT NOT NULL,
+    text_kennung TEXT NOT NULL,
+    text_hash TEXT NOT NULL,
+    haken INTEGER NOT NULL,
+    klick INTEGER NOT NULL,
+    ip TEXT NOT NULL DEFAULT '',
+    geraet TEXT NOT NULL DEFAULT '',
+    UNIQUE(vorgang_id, person)
+);
+-- Aufrufprotokoll je Link (Zeit, gekürzte IP, Ergebnis).
+CREATE TABLE IF NOT EXISTS zugriff_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    link_id INTEGER NOT NULL,
+    mandant_ref TEXT NOT NULL,
+    zeit TEXT NOT NULL,
+    ip TEXT NOT NULL DEFAULT '',
+    ergebnis TEXT NOT NULL
+);
+-- Kurzlebig (24 h): Fehlversuche für vorgelegte Token, die es nicht gibt (nur der SHA-256 des Tokens), und Prüfversuche je IP (nur HMAC der Adresse).
+CREATE TABLE IF NOT EXISTS zugang_unbekannt (
+    token_hash TEXT PRIMARY KEY,
+    versuche INTEGER NOT NULL,
+    zeit TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS zugang_ip (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ip_hmac TEXT NOT NULL,
+    zeit TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_zugang_ip ON zugang_ip(ip_hmac, zeit);
 -- Nutzer = E-Mail der Portal-Sitzung, ip gekürzt (IPv4 /24, IPv6 /48). Keine Dokumentinhalte.
 CREATE TABLE IF NOT EXISTS audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -251,7 +314,7 @@ def dokument_bytes(mandant_ref: str, vorgang_id: int, rolle: str) -> bytes | Non
     return pfad.read_bytes() if pfad.is_file() else None
 
 
-MANDANTENTABELLEN = ("dokument", "link", "versand", "mail_zugang", "vorgang", "audit_log")
+MANDANTENTABELLEN = ("sitzung", "unterschrift", "zugriff_log", "dokument", "link", "versand", "mail_zugang", "stelle_einstellung", "vorgang", "audit_log")
 
 
 def mandant_loeschen(mandant_ref: str) -> dict:
@@ -267,3 +330,28 @@ def mandant_loeschen(mandant_ref: str) -> dict:
             zahlen[tabelle] = c.execute("DELETE FROM %s WHERE mandant_ref=?" % tabelle, (mandant_ref,)).rowcount
     zahlen["dateien"] = dateien
     return zahlen
+
+
+def link_status(mandant_ref: str, vorgang_id: int) -> str | None:
+    """'aktiv' | 'gesperrt' | 'abgelaufen' | 'verbraucht' | None (noch kein Link). Für den Hinweis an die Beratungsstelle."""
+    with verbindung() as c:
+        zeilen = c.execute("SELECT gesperrt, verbraucht_am, laeuft_ab FROM link WHERE mandant_ref=? AND vorgang_id=? ORDER BY id DESC", (mandant_ref, int(vorgang_id))).fetchall()
+    if not zeilen:
+        return None
+    jetzt = jetzt_text()
+    z = zeilen[0]
+    if z["verbraucht_am"]:
+        return "verbraucht"
+    if z["gesperrt"]:
+        return "gesperrt"
+    return "abgelaufen" if z["laeuft_ab"] <= jetzt else "aktiv"
+
+
+def jetzt_text() -> str:
+    return jetzt()
+
+
+def stelle_einstellung_lesen(mandant_ref: str) -> dict | None:
+    with verbindung() as c:
+        z = c.execute("SELECT verantwortlicher, datenschutz_link, geaendert_am FROM stelle_einstellung WHERE mandant_ref=?", (mandant_ref,)).fetchone()
+    return dict(z) if z else None

@@ -22,7 +22,7 @@ _ADRESSE = re.compile(r"^[^@\s<>\"',;:()\[\]\\]{1,64}@[A-Za-z0-9](?:[A-Za-z0-9-]
 
 
 class MailFehler(Exception):
-    """code: konfiguration | tls | verbindung | anmeldung | absender_abgelehnt | empfaenger_abgelehnt | abgelehnt | unklar."""
+    """code: konfiguration | tls_zertifikat | tls_nicht_angeboten | tls_fehler | verbindung | anmeldung | absender_abgelehnt | empfaenger_abgelehnt | abgelehnt | unklar."""
 
     def __init__(self, code: str, definitiv: bool = True):
         super().__init__(code)
@@ -114,7 +114,7 @@ def _verbindung_aufbauen(host: str, port: int, ip: str):
         try:
             srv.ehlo()
             if not srv.has_extn("starttls"):
-                raise MailFehler("tls")
+                raise MailFehler("tls_nicht_angeboten")
             srv.starttls(context=kontext)
             srv.ehlo()
         except BaseException:
@@ -126,8 +126,10 @@ def _verbindung_aufbauen(host: str, port: int, ip: str):
         return srv
     except MailFehler:
         raise
-    except (ssl.SSLError, ssl.CertificateError):
-        raise MailFehler("tls")
+    except (ssl.SSLCertVerificationError, ssl.CertificateError):
+        raise MailFehler("tls_zertifikat")
+    except ssl.SSLError:
+        raise MailFehler("tls_fehler")
     except (smtplib.SMTPException, OSError):
         raise MailFehler("verbindung")
 
@@ -144,8 +146,25 @@ def nachricht_bauen(absender_adresse: str, absender_name: str, an: str, betreff:
     return m
 
 
-def senden(zugang: dict, empfaenger: list, nachricht: EmailMessage) -> str:
+def verbindungsinfo(srv) -> dict:
+    """TLS-Version, Verfahren und Eckdaten des geprüften Serverzertifikats (für den Betriebsbeleg; keine Geheimnisse)."""
+    sock = getattr(srv, "sock", None)
+    if not isinstance(sock, ssl.SSLSocket):
+        return {}
+    info = {"tls_version": sock.version(), "cipher": (sock.cipher() or ("",))[0]}
+    try:
+        cert = sock.getpeercert() or {}
+        aussteller = dict(x[0] for x in cert.get("issuer", ()))
+        info["zertifikat_gueltig_bis"] = cert.get("notAfter", "")
+        info["aussteller"] = aussteller.get("commonName") or aussteller.get("organizationName") or ""
+    except (ValueError, OSError):
+        pass
+    return info
+
+
+def senden(zugang: dict, empfaenger: list, nachricht: EmailMessage, info: dict | None = None) -> str:
     """Sendet ``nachricht`` an die Liste ``empfaenger`` (Umschlag; Bcc steht nicht in den Kopfzeilen). Liefert die Message-ID. Wirft MailFehler.
+    ``info`` (optional) wird mit den Verbindungsdaten gefüllt (verbindungsinfo).
 
     zugang: host, port, benutzer, passwort, absender_adresse."""
     try:
@@ -154,6 +173,8 @@ def senden(zugang: dict, empfaenger: list, nachricht: EmailMessage) -> str:
         raise MailFehler("konfiguration")
     srv = _verbindung_aufbauen(host, port, ip)
     try:
+        if info is not None:
+            info.update(verbindungsinfo(srv))
         try:
             srv.login(zugang["benutzer"], zugang["passwort"])
         except smtplib.SMTPNotSupportedError:

@@ -1,0 +1,1 @@
+Bitte geben Sie das Geburtsdatum der Person ein, für die das Dokument erstellt wurde. Bei Ehepaaren und eingetragenen Lebenspartnerschaften ist das die zuerst genannte Person. Eingabe als sechs Ziffern: Tag, Monat, zweistelliges Jahr, ohne Punkte. Nach fünf Fehleingaben wird der Link aus Sicherheitsgründen gesperrt; Ihre Beratungsstelle hilft Ihnen dann weiter.

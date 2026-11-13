@@ -2,7 +2,7 @@
 
 Unterschriften für Beratungsstellen (BST Next). Eigener Dienst, Flask + SQLite, Anmeldung über das zentrale Portal-Cookie.
 
-**Stand 0.3.0: Baustein 1 (Portal-Anschluss), Baustein 2 (PDF-Eingang), Baustein 3 (Prüfansicht und Versand).** Unterschriftsseite, Abschluss/Jobs und Abrechnung folgen mit den Bausteinen 4 bis 6.
+**Stand 0.4.0: Baustein 1 (Portal-Anschluss), 2 (PDF-Eingang), 3 (Prüfansicht und Versand), 4 (Unterschriftsseite: Code-Prüfung, Link-Sperre, Unterschrift).** Abschluss/Jobs (Einbetten, Nachweisprotokoll, Download, Erinnerungen, Löschung) und Abrechnung folgen mit den Bausteinen 5 und 6.
 
 ## Anmeldung und Mandant (Baustein 1)
 - Cookie `bst_session` wird nicht selbst geprüft; SignNext fragt SortNext (`/api/v1/portal/me`, 30 s Zwischenspeicher, Ablauf der Freischaltung wirkt nach höchstens 30 s).
@@ -31,6 +31,22 @@ Unterschriften für Beratungsstellen (BST Next). Eigener Dienst, Flask + SQLite,
 - **Schlüssel** (`schluessel.py`): `SIGNNEXT_HAUPTSCHLUESSEL` (mindestens 32 Zeichen, fail closed, kein Ersatzwert) nur als Umgebungsvariable, nie im Repo; Betriebshinweis: nicht im selben Backup wie die Datenbank. Schlüssel je Beratungsstelle und Zweck per HKDF, zufälliger Nonce je Wert, Beratungsstelle und Zweck als authentifizierte Zusatzdaten. Schlüsselwechsel: neuen Schlüssel setzen, den bisherigen als `SIGNNEXT_HAUPTSCHLUESSEL_ALT`, `python manage.py schluesselwechsel`. Der Code-HMAC des Geburtsdatums kann nicht umgerechnet werden; der alte Schlüssel muss konfiguriert bleiben, bis die betroffenen Vorgänge abgelaufen oder gelöscht sind.
 - Link-Basisadresse: `SIGNNEXT_BASIS_URL` (https, kein Standardwert; ohne sie wird nichts versendet).
 
+## Versand-Schalter (ab 0.4.0)
+`SIGNNEXT_VERSAND`: `aus` (Standard, fail closed: nichts wird versendet, 503), `testadressen` (nur an Adressen aus `SIGNNEXT_VERSAND_TESTADRESSEN`, kommagetrennt), `an` (Echtversand). `an` setzt nur der Betreiber nach der Freigabe durch catrin und nach dem Produktionsbeleg (echte Testmail über `POST /api/v1/mail-zugang/pruefen` gegen den Mailserver der Pilot-Beratungsstelle; die Antwort enthält TLS-Version, Verfahren, Zertifikat gültig bis und Aussteller, dasselbe steht im Audit). Zusätzlich muss der Mail-Zugang erfolgreich geprüft sein (jede Änderung am Zugang hebt das auf) und die Beratungsstelle ihre Angaben für die Datenschutzinformation eingetragen haben (`PUT /api/v1/einstellungen`: `verantwortlicher`, `datenschutz_link`).
+
+## Mitglieder-Zugang und Unterschrift (ab 0.4.0), Vertrag für die Oberfläche
+Der Link in der Mail lautet `https://<Basisadresse>/u#<Token>`: Das Token steht im Fragment und erreicht nie einen Server-Zugriffslog. Die Seite liest es, entfernt es aus der Adresszeile (`history.replaceState`) und sendet es im Body. Alle Aufrufe `POST` brauchen den Header `Origin` = Basisadresse und gehen an `/api/v1/zugang/…`; die Sitzung steckt in einem Cookie (`sn_zugang`, HttpOnly, Secure, SameSite=Strict, 60 Minuten).
+1. `GET /hinweis` → `{kennung, freigegeben, zugangshinweis}`: Text vor der Eingabe des Geburtsdatums.
+2. `POST /pruefen {token, code}` (`code` = Geburtsdatum der Person, für die das Dokument erstellt wurde, bei Ehepaaren der zuerst genannten, sechs Ziffern `ttmmjj`). Erfolg: `200 {ok: true}` und Cookie. Jeder Fehler (falsch, unbekannt, abgelaufen, gesperrt, verbraucht): `401 {error: "angaben_stimmen_nicht", versuch: x, von: 5, gesperrt: bool}` mit immer gleicher Form; nach 5 Fehlversuchen ist der Link dauerhaft gesperrt. `429` bei zu vielen Versuchen je IP.
+3. `GET /status` → `{schritt: lesen|texte|unterschreiben, seiten, geliefert, personen, unterschrieben: [..], naechste_person}`.
+4. `GET /seite/<n>` → JPEG der Seite n (834 px breit, nur in der Sitzung, nie zwischengespeichert). Alle Seiten müssen ausgeliefert sein.
+5. `POST /gelesen {bestaetigt: true}` („vollständig gelesen“).
+6. `GET /texte` → `{kennung, freigegeben, hash, texte: {datenschutz, unterschriftssatz, haken, ausstieg, zugangshinweis}}`: vollständig lesbar (nicht nur ein Link). Die Texte liegen in `texte/`, die Variablen kommen aus der tatsächlichen Einstellung. `freigegeben: false`, solange die Texte nur ein Entwurf sind.
+7. `POST /unterschrift {person, bild, ich_unterschreibe: true, haken: true, text_hash}`: `bild` = PNG als Data-URI (höchstens 200 KB, 50–1200 × 20–600 Pixel), `text_hash` = Hash aus Schritt 6. Gespeichert wird NUR das Bild (neu kodiert), kein Druck, keine Geschwindigkeit, kein Strichverlauf; weitere Felder werden abgelehnt. Je Person nacheinander (Person 2 erst nach Person 1, Texte und Haken je Person erneut). Antwort `{fertig: false, naechste_person: 2}` oder `{fertig: true}` (Vorgang `unterschrieben`, Link verbraucht, Sitzung beendet).
+8. `POST /abmelden`.
+Je Unterschrift gespeichert: Bild und dessen SHA-256, Zeitpunkt der Anzeige der Texte, Zeitpunkt der Unterschrift, Textkennung und Hash des angezeigten Textes, Haken, Klick, IP (laut `SIGNNEXT_IP_SPEICHERUNG`: `voll` oder `gekuerzt`), grobe Gerätekennung (nur Browser-Familie und Betriebssystem). Aufbewahrung in der Datenschutzinformation: `SIGNNEXT_AUFBEWAHRUNG_TAGE` (Standard 90).
+Beratungsstelle: `POST /api/v1/vorgaenge/<id>/neuer-link {bestaetigt: true}` (alte Links ungültig, neues Token per Mail, nur wenn nicht unterschrieben, zählt nicht als neuer Vorgang); `GET /api/v1/vorgaenge/<id>` zeigt `link_status` (`aktiv` | `gesperrt` | `abgelaufen` | `verbraucht`).
+
 ## Routen
 `GET /health`, `GET /api/version`, `GET /api/v1/me`, `GET|POST /api/v1/vorgaenge`, `GET /api/v1/vorgaenge/<id>`, `POST …/abgleich-bestaetigen`, `GET …/pruefung`, `GET …/dokument`, `PUT …/angaben`, `POST …/versenden`, `GET|PUT|DELETE /api/v1/mail-zugang`, `POST /api/v1/mail-zugang/pruefen`.
 
@@ -38,7 +54,7 @@ Unterschriften für Beratungsstellen (BST Next). Eigener Dienst, Flask + SQLite,
 `audit_log` (Zeit, Mandant, Nutzer-E-Mail, Aktion, IP gekürzt auf /24 bzw. /48, keine Dokumentinhalte). `db.mandant_loeschen(mandant_ref)` entfernt Dateien und alle Daten einer Beratungsstelle und liefert Zahlen fürs Löschprotokoll; ein Test stellt sicher, dass neue Mandantentabellen dort aufgenommen werden.
 
 ## Konfiguration
-`SIGNNEXT_DATEN` (Standard `/data`), `SORTNEXT_BASE_URL`, `SIGNNEXT_PROXIES` (Standard 1), `SIGNNEXT_HAUPTSCHLUESSEL`, `SIGNNEXT_HAUPTSCHLUESSEL_ALT`, `SIGNNEXT_BASIS_URL`, `SIGNNEXT_STELLE_ROLLE`. Alle Abhängigkeiten exakt gepinnt (`requirements.txt`, Tests zusätzlich `requirements-dev.txt` mit reportlab), kein PyMuPDF. Lizenzen laut Paketangaben: pdfplumber und pdfminer.six MIT, pypdf BSD-3, pypdfium2 BSD/Apache, pillow MIT-CMU, cryptography Apache/BSD, reportlab BSD (nur Tests).
+`SIGNNEXT_DATEN` (Standard `/data`), `SORTNEXT_BASE_URL`, `SIGNNEXT_PROXIES` (Standard 1), `SIGNNEXT_HAUPTSCHLUESSEL`, `SIGNNEXT_HAUPTSCHLUESSEL_ALT`, `SIGNNEXT_BASIS_URL`, `SIGNNEXT_STELLE_ROLLE`, `SIGNNEXT_VERSAND`, `SIGNNEXT_VERSAND_TESTADRESSEN`, `SIGNNEXT_AUFBEWAHRUNG_TAGE`, `SIGNNEXT_IP_SPEICHERUNG`. Alle Abhängigkeiten exakt gepinnt (`requirements.txt`, Tests zusätzlich `requirements-dev.txt` mit reportlab), kein PyMuPDF. Lizenzen laut Paketangaben: pdfplumber und pdfminer.six MIT, pypdf BSD-3, pypdfium2 BSD/Apache, pillow MIT-CMU, cryptography Apache/BSD, reportlab BSD (nur Tests).
 
 ## Tests
-`python -m unittest tests.test_baustein1 tests.test_baustein2 tests.test_baustein3` (die zweite Gruppe startet für jede Auswertung einen Kindprozess, rund eine Minute). Der Test `TestEchteTestdateien` läuft nur, wenn die echten Beispieldateien aus dem Sync vorhanden sind; sie gehören nicht ins Repo.
+`python -m unittest tests.test_baustein1 tests.test_baustein2 tests.test_baustein3 tests.test_baustein4` (die zweite Gruppe startet für jede Auswertung einen Kindprozess, rund eine Minute). Der Test `TestEchteTestdateien` läuft nur, wenn die echten Beispieldateien aus dem Sync vorhanden sind; sie gehören nicht ins Repo.

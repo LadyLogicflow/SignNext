@@ -56,7 +56,7 @@ def vertrauen():
 class MailBasis(Basis):
     def setUp(self):
         super().setUp()
-        for p in (mock.patch.dict(os.environ, {"SIGNNEXT_HAUPTSCHLUESSEL": HK, "SIGNNEXT_BASIS_URL": "https://signnext.example"}),
+        for p in (mock.patch.dict(os.environ, {"SIGNNEXT_HAUPTSCHLUESSEL": HK, "SIGNNEXT_BASIS_URL": "https://signnext.example", "SIGNNEXT_VERSAND": "an"}),
                   mock.patch("pdf_eingang.auswerten", side_effect=_auswerten_gemerkt)):
             p.start()
             self.addCleanup(p.stop)
@@ -70,6 +70,16 @@ class MailBasis(Basis):
         self.addCleanup(logging.getLogger().removeHandler, h)
         self.addCleanup(logging.getLogger().setLevel, self._alt_level)
         self.als("ta", me(ref="1001"))
+        self.einstellungen_setzen()
+
+    def einstellungen_setzen(self, ref="1001"):
+        with db.verbindung() as c:
+            c.execute("INSERT OR REPLACE INTO stelle_einstellung(mandant_ref, verantwortlicher, datenschutz_link, geaendert_am, geaendert_von) VALUES (?,?,?,?,?)",
+                      (ref, "Beratungsstelle Beispiel, Musterweg 1, 12345 Musterstadt, kontakt@bst.example", "https://bst.example/datenschutz", db.jetzt(), "test"))
+
+    def markiere_geprueft(self, ref="1001"):
+        with db.verbindung() as c:
+            c.execute("UPDATE mail_zugang SET geprueft_am=? WHERE mandant_ref=?", (db.jetzt(), ref))
 
     def starte(self, tls="implicit", zert=None, **kw):
         srv = fake_smtp.FakeSmtp(tls=tls, zert=zert or ZERT, **kw).start()
@@ -231,7 +241,7 @@ class TestMailer(MailBasis):
             srv = self.starte(modus, zert=ZERT_FALSCH)
             with self.assertRaises(mailer.MailFehler) as k:
                 mailer.senden(self.z(srv), ["mitglied@example.org"], self.nachricht())
-            self.assertEqual((k.exception.code, k.exception.definitiv), ("tls", True), modus)
+            self.assertEqual((k.exception.code, k.exception.definitiv), ("tls_zertifikat", True), modus)
             self.assertEqual((srv.anmeldungen, srv.nachrichten), ([], []), modus)
 
     def test_unbekannte_zertifizierungsstelle_bricht_ab(self):
@@ -241,7 +251,7 @@ class TestMailer(MailBasis):
             with mock.patch("mailer._ssl_kontext", side_effect=_echt_ssl_kontext):
                 with self.assertRaises(mailer.MailFehler) as k:
                     mailer.senden(self.z(srv), ["mitglied@example.org"], self.nachricht())
-            self.assertEqual(k.exception.code, "tls", modus)
+            self.assertEqual(k.exception.code, "tls_zertifikat", modus)
             self.assertEqual(srv.anmeldungen, [], modus)
 
     def test_standardkontext_prueft_zertifikat_und_hostname(self):
@@ -256,7 +266,7 @@ class TestMailer(MailBasis):
         srv = self.starte("starttls", starttls_angeboten=False, auth_ohne_tls=True)
         with self.assertRaises(mailer.MailFehler) as k:
             mailer.senden(self.z(srv), ["mitglied@example.org"], self.nachricht())
-        self.assertEqual(k.exception.code, "tls")
+        self.assertEqual(k.exception.code, "tls_nicht_angeboten")
         self.assertEqual((srv.anmeldungen, srv.nachrichten), ([], []))
         self.assertNotIn("AUTH", srv.befehle)
 
@@ -265,7 +275,7 @@ class TestMailer(MailBasis):
         with mock.patch("mailer._implizit_tls", return_value=False):
             with self.assertRaises(mailer.MailFehler) as k:
                 mailer.senden(self.z(srv), ["mitglied@example.org"], self.nachricht())
-        self.assertEqual(k.exception.code, "tls")
+        self.assertEqual(k.exception.code, "tls_nicht_angeboten")
         self.assertEqual(srv.anmeldungen, [])
 
     def test_falsches_passwort(self):
@@ -450,7 +460,7 @@ class TestMailZugang(MailBasis):
         srv = self.starte("implicit")
         self.zugang(srv)
         r = self.c.post("/api/v1/mail-zugang/pruefen")
-        self.assertEqual((r.status_code, r.get_json()), (200, {"ok": True}))
+        self.assertEqual((r.status_code, r.get_json()["ok"]), (200, True))
         self.assertEqual([m["an"] for m in srv.nachrichten], [[ABSENDER]])
         self.assertTrue(self.c.get("/api/v1/mail-zugang").get_json()["geprueft_am"])
 
@@ -469,7 +479,7 @@ class TestMailZugang(MailBasis):
         srv = self.starte("starttls", zert=ZERT_FALSCH)
         self.zugang(srv)
         r = self.c.post("/api/v1/mail-zugang/pruefen")
-        self.assertEqual((r.status_code, r.get_json()["error"]), (502, "mail_tls"))
+        self.assertEqual((r.status_code, r.get_json()["error"]), (502, "mail_tls_zertifikat"))
         self.assertEqual(srv.anmeldungen, [])
 
     def test_loeschen(self):
@@ -729,6 +739,7 @@ class TestAngaben(MailBasis):
     def test_nach_dem_versand_gesperrt(self):
         srv = self.starte("implicit")
         self.zugang(srv)
+        self.markiere_geprueft()
         vid = self.bereit()
         self.assertEqual(self.senden_ok(vid).status_code, 200)
         self.assertEqual(self.put(vid, personen=1).status_code, 409)
@@ -747,6 +758,7 @@ class TestVersand(MailBasis):
     def vorbereiten(self, tls="implicit", **kw):
         srv = self.starte(tls, **kw)
         self.assertEqual(self.zugang(srv).status_code, 200)
+        self.markiere_geprueft()
         return srv
 
     def link_zeilen(self):
@@ -767,7 +779,7 @@ class TestVersand(MailBasis):
         self.assertEqual(m["Subject"], versand.BETREFF)
         self.assertEqual(m["From"], "Beratungsstelle Beispiel <%s>" % ABSENDER)
         self.assertIsNone(m["Bcc"])
-        token = re.search(r"https://signnext\.example/u/([A-Za-z0-9_-]+)", text).group(1)
+        token = re.search(r"https://signnext\.example/u#([A-Za-z0-9_-]+)", text).group(1)
         self.assertGreaterEqual(len(token), 43)
         # Betreff und Text enthalten nichts über die Person oder die Steuer
         for wert in pdfs.PERSONENDATEN + ("010260", "Steuer", "Erklärung", "Gesendet-Ordner"):
@@ -798,10 +810,10 @@ class TestVersand(MailBasis):
         vid = self.bereit()
         r = self.senden_ok(vid)
         _, text = self.mail_text(srv.nachrichten[0])
-        token = re.search(r"/u/([A-Za-z0-9_-]+)", text).group(1)
+        token = re.search(r"/u#([A-Za-z0-9_-]+)", text).group(1)
         antworten = r.get_data(as_text=True) + self.c.get("/api/v1/vorgaenge/%d" % vid).get_data(as_text=True) + self.c.get("/api/v1/vorgaenge/%d/pruefung" % vid).get_data(as_text=True)
         gesamt = antworten + self.db_text() + self.db_bytes().decode("latin-1") + self.logtext.getvalue() + json.dumps(self.audit_zeilen())
-        for geheim in (token, PW, "010260", "/u/"):
+        for geheim in (token, PW, "010260", "/u#"):
             self.assertNotIn(geheim, gesamt, geheim)
         intern = self.db_text() + self.db_bytes().decode("latin-1") + self.logtext.getvalue() + json.dumps(self.audit_zeilen())
         self.assertNotIn(pdfs.DOB, intern)                                  # die Prüfansicht zeigt das Datum aus dem PDF an, gespeichert wird es nie
@@ -921,6 +933,7 @@ class TestVersand(MailBasis):
         self.assertEqual(srv.nachrichten[0]["an"], [pdfs.MAIL])                                      # Voreinstellung: aus
         self.assertFalse(self.c.get("/api/v1/mail-zugang").get_json()["bcc_an_absender"])
         self.c.put("/api/v1/mail-zugang", json={"bcc_an_absender": True})
+        self.markiere_geprueft()
         self.senden_ok(self.bereit())
         n = srv.nachrichten[1]
         self.assertEqual(n["an"], [pdfs.MAIL, ABSENDER])
@@ -931,6 +944,7 @@ class TestVersand(MailBasis):
     def test_signatur_nur_wenn_gesetzt(self):
         srv = self.vorbereiten()
         self.c.put("/api/v1/mail-zugang", json={"signatur": ""})
+        self.markiere_geprueft()
         self.senden_ok(self.bereit())
         _, text = self.mail_text(srv.nachrichten[0])
         self.assertNotIn("-- \n", text)
@@ -956,13 +970,14 @@ class TestVersand(MailBasis):
         srv = self.vorbereiten()
         self.senden_ok(self.bereit())
         self.senden_ok(self.bereit())
-        tokens = [re.search(r"/u/([A-Za-z0-9_-]+)", self.mail_text(n)[1]).group(1) for n in srv.nachrichten]
+        tokens = [re.search(r"/u#([A-Za-z0-9_-]+)", self.mail_text(n)[1]).group(1) for n in srv.nachrichten]
         self.assertEqual(len(set(tokens)), 2)
 
     def test_eindeutiger_fehler_vor_der_zustellung_erlaubt_neuen_versuch(self):
         srv = self.vorbereiten()
         vid = self.bereit()
         self.c.put("/api/v1/mail-zugang", json={"passwort": "falsches-Passwort-1"})
+        self.markiere_geprueft()
         r = self.senden_ok(vid)
         self.assertEqual((r.status_code, r.get_json()["error"]), (502, "mail_anmeldung"))
         self.assertEqual(db.vorgang_intern("1001", vid)["status"], "bereit")
@@ -971,6 +986,7 @@ class TestVersand(MailBasis):
         with db.verbindung() as c:
             self.assertEqual([z["ergebnis"] for z in c.execute("SELECT ergebnis FROM versand")], ["fehlgeschlagen"])
         self.c.put("/api/v1/mail-zugang", json={"passwort": PW})
+        self.markiere_geprueft()
         self.assertEqual(self.senden_ok(vid).status_code, 200)
         self.assertEqual(len(srv.nachrichten), 1)
         self.assertNotIn("falsches-Passwort-1", r.get_data(as_text=True) + self.logtext.getvalue() + self.db_text())
@@ -1008,7 +1024,7 @@ class TestVersand(MailBasis):
         srv = self.vorbereiten("starttls", zert=ZERT_FALSCH)
         vid = self.bereit()
         r = self.senden_ok(vid)
-        self.assertEqual((r.status_code, r.get_json()["error"]), (502, "mail_tls"))
+        self.assertEqual((r.status_code, r.get_json()["error"]), (502, "mail_tls_zertifikat"))
         self.assertEqual((srv.anmeldungen, srv.nachrichten, db.vorgang_intern("1001", vid)["status"]), ([], [], "bereit"))
 
     def test_abbruch_nach_data_ist_unklar_und_wird_nie_wiederholt(self):
@@ -1038,6 +1054,7 @@ class TestVersand(MailBasis):
         srv = self.vorbereiten()
         with mock.patch("config.VERSAND_JE_STUNDE", 2):
             self.c.put("/api/v1/mail-zugang", json={"passwort": "falsch-2"})
+            self.markiere_geprueft()
             vid = self.bereit()
             self.assertEqual(self.senden_ok(vid).status_code, 502)
             self.assertEqual(self.senden_ok(vid).status_code, 502)

@@ -1,4 +1,5 @@
 """Schnittstelle für Beratungsstellen (Portal-Cookie). Jede Route arbeitet nur mit dem Mandanten aus der Sitzung (g.nutzer['mandant_ref'])."""
+import re
 from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, g, jsonify, request
@@ -35,6 +36,7 @@ def vorgang(vorgang_id):
     if v is None:
         return jsonify({"error": "nicht_gefunden"}), 404
     audit("vorgang_gelesen", "id=%d" % vorgang_id)
+    v["link_status"] = db.link_status(g.nutzer["mandant_ref"], vorgang_id)
     v["dokumente"] = [{k: d[k] for k in ("id", "rolle", "seiten", "groesse", "sha256", "stellen")} for d in db.dokumente_liste(g.nutzer["mandant_ref"], vorgang_id)]
     return jsonify(v)
 
@@ -62,6 +64,8 @@ MELDUNGEN = {
     "geburtsdatum_ungueltig": "Das Geburtsdatum ist ungültig (Format TT.MM.JJJJ).",
     "personen_ungueltig": "Die Personenzahl muss 1 oder 2 sein.",
     "schon_versendet": "Dieser Vorgang wurde bereits versendet.",
+    "schon_unterschrieben": "Dieser Vorgang ist bereits unterschrieben.",
+    "stelleneinstellungen_fehlen": "Bitte zuerst die Angaben für die Datenschutzinformation eintragen (Einstellungen).",
     "versand_laeuft_oder_unklar": "Der Versand läuft oder sein Ergebnis ist unklar. Bitte nicht erneut versenden.",
     "basis_url_fehlt": "Der Dienst ist nicht vollständig eingerichtet (Adresse fehlt).",
     "nicht_bereit": "Der Dienst ist nicht vollständig eingerichtet.",
@@ -70,7 +74,12 @@ MELDUNGEN = {
     "angaben_fehlen": "Es fehlen Angaben für den Versand.",
     "zu_viele_versaende": "Zu viele Versände in der letzten Stunde.",
     "bestaetigung_fehlt": "Bitte ausdrücklich bestätigen (bestaetigt: true).",
-    "mail_tls": "Die verschlüsselte Verbindung zum Mailserver ist nicht möglich oder das Zertifikat ist ungültig.",
+    "mail_tls_zertifikat": "Zertifikat des Mailservers nicht vertrauenswürdig.",
+    "mail_tls_nicht_angeboten": "Der Mailserver bietet keine verschlüsselte Verbindung an.",
+    "mail_tls_fehler": "Die verschlüsselte Verbindung zum Mailserver ist fehlgeschlagen.",
+    "versand_gesperrt": "Der Versand ist derzeit nicht freigeschaltet.",
+    "mail_zugang_ungeprueft": "Bitte zuerst den Mail-Zugang prüfen (Testmail).",
+    "empfaenger_nicht_freigegeben": "Im Testbetrieb darf nur an freigegebene Testadressen versendet werden.",
     "mail_verbindung": "Der Mailserver ist nicht erreichbar.",
     "mail_anmeldung": "Die Anmeldung am Mailserver wurde abgelehnt. Bitte Zugangsdaten prüfen.",
     "mail_absender_abgelehnt": "Der Mailserver hat die Absenderadresse abgelehnt.",
@@ -241,8 +250,60 @@ def mail_zugang_pruefen():
         return jsonify({"error": "nicht_bereit", "meldung": MELDUNGEN["nicht_bereit"]}), 503
     except schluessel.Entschluesselung:
         return jsonify({"error": "mail_zugang_nicht_lesbar", "meldung": MELDUNGEN["mail_zugang_nicht_lesbar"]}), 503
-    audit("mailzugang_geprueft", "ok=%s%s" % (ergebnis["ok"], "" if ergebnis["ok"] else " fehler=" + ergebnis["fehler"]))
     if ergebnis["ok"]:
-        return jsonify({"ok": True})
+        v = ergebnis["verbindung"]
+        audit("mailzugang_geprueft", "ok=True tls=%s cipher=%s zertifikat_bis=%s aussteller=%s" % (
+            v.get("tls_version", ""), v.get("cipher", ""), v.get("zertifikat_gueltig_bis", ""), v.get("aussteller", "")))
+    else:
+        audit("mailzugang_geprueft", "ok=False fehler=" + ergebnis["fehler"])
+    if ergebnis["ok"]:
+        return jsonify(ergebnis)
     code = "mail_" + ergebnis["fehler"] if ergebnis["fehler"] != "nicht_konfiguriert" else "mail_zugang_fehlt"
     return jsonify({"ok": False, "error": code, "meldung": MELDUNGEN.get(code, code)}), (409 if code == "mail_zugang_fehlt" else 502)
+
+
+@bp.post("/vorgaenge/<int:vorgang_id>/neuer-link")
+@anmeldung_pflicht()
+def vorgang_neuer_link(vorgang_id):
+    """Neuer Zugangslink (z. B. nach Sperre oder Ablauf); die alten Links werden ungültig. Zählt nicht als neuer Vorgang."""
+    daten = request.get_json(silent=True)
+    if not isinstance(daten, dict) or daten.get("bestaetigt") is not True:
+        return jsonify({"error": "bestaetigung_fehlt", "meldung": MELDUNGEN["bestaetigung_fehlt"]}), 400
+    try:
+        ergebnis = versand.neuer_link(g.nutzer["mandant_ref"], vorgang_id, g.nutzer["email"])
+    except versand.Fehler as f:
+        audit("neuer_link_abgebrochen", "id=%d grund=%s" % (vorgang_id, f.code))
+        return jsonify({"error": f.code, "meldung": MELDUNGEN.get(f.code, f.code)}), f.status
+    except pdf_eingang.Fehler as f:
+        return _fehler(f)
+    audit("neuer_link", "id=%d" % vorgang_id)
+    return jsonify(ergebnis)
+
+
+# --- Angaben der Beratungsstelle für die Datenschutzinformation ---
+
+@bp.get("/einstellungen")
+@anmeldung_pflicht()
+def einstellungen_lesen():
+    e = db.stelle_einstellung_lesen(g.nutzer["mandant_ref"])
+    return jsonify(dict(e, gesetzt=True) if e else {"gesetzt": False})
+
+
+@bp.put("/einstellungen")
+@anmeldung_pflicht("admin")
+def einstellungen_setzen():
+    d = request.get_json(silent=True)
+    if not isinstance(d, dict) or set(d) != {"verantwortlicher", "datenschutz_link"}:
+        return jsonify({"error": "eingabe_ungueltig", "meldung": MELDUNGEN["eingabe_ungueltig"]}), 422
+    v, link = d["verantwortlicher"], d["datenschutz_link"]
+    if not isinstance(v, str) or not 5 <= len(v.strip()) <= 500 or re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", v):
+        return jsonify({"error": "eingabe_ungueltig", "meldung": "Bitte Name, Anschrift und Kontakt der Beratungsstelle angeben.", "feld": "verantwortlicher"}), 422
+    if not isinstance(link, str) or not re.fullmatch(r"https://[^\s<>\"']{4,300}", link.strip()):
+        return jsonify({"error": "eingabe_ungueltig", "meldung": "Bitte einen Link zur Datenschutzerklärung (https) angeben.", "feld": "datenschutz_link"}), 422
+    with db.verbindung() as c:
+        c.execute("INSERT INTO stelle_einstellung(mandant_ref, verantwortlicher, datenschutz_link, geaendert_am, geaendert_von) VALUES (?,?,?,?,?) "
+                  "ON CONFLICT(mandant_ref) DO UPDATE SET verantwortlicher=excluded.verantwortlicher, datenschutz_link=excluded.datenschutz_link, "
+                  "geaendert_am=excluded.geaendert_am, geaendert_von=excluded.geaendert_von",
+                  (g.nutzer["mandant_ref"], v.strip(), link.strip(), db.jetzt(), g.nutzer["email"]))
+    audit("einstellungen_gesetzt", "")
+    return jsonify({"gesetzt": True})

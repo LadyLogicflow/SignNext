@@ -126,3 +126,8 @@ def neues_token() -> tuple[str, str]:
 
 def token_hash(token: str) -> str:
     return hashlib.sha256((token or "").encode("utf-8", "ignore")).hexdigest()
+
+
+def ip_hmac(ip: str) -> str:
+    """Pseudonym einer IP-Adresse für die grobe Begrenzung (kein Klartext in der Datenbank; ein globaler Schlüssel, nicht je Beratungsstelle)."""
+    return hmac.new(_ableiten(aktuell(), "ip", "global"), (ip or "").encode("utf-8", "ignore"), hashlib.sha256).hexdigest()

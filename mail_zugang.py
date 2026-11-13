@@ -127,12 +127,13 @@ def pruefen(mandant_ref: str, nutzer: str) -> dict:
         return {"ok": False, "fehler": "nicht_konfiguriert"}
     m = mailer.nachricht_bauen(z["absender_adresse"], z["absender_name"], z["absender_adresse"], "SignNext: Test Ihres Mail-Zugangs",
                                "Guten Tag,\n\ndiese Nachricht bestätigt, dass SignNext über Ihr Postfach Mails versenden kann.\nSie müssen nichts weiter tun.\n")
+    info: dict = {}
     try:
-        mailer.senden(z, [z["absender_adresse"]], m)
+        mailer.senden(z, [z["absender_adresse"]], m, info)
     except mailer.MailFehler as f:
         return {"ok": False, "fehler": f.code}
     finally:
         z["passwort"] = None
     with db.verbindung() as c:
         c.execute("UPDATE mail_zugang SET geprueft_am=? WHERE mandant_ref=?", (db.jetzt(), mandant_ref))
-    return {"ok": True}
+    return {"ok": True, "verbindung": info}

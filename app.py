@@ -7,6 +7,7 @@ from flask import Flask, Request, jsonify
 import api
 import config
 import db
+import zugang
 
 
 def _health_daten() -> tuple[dict, bool]:
@@ -46,6 +47,7 @@ def create_app(db_pfad: str | None = None) -> Flask:
         db_pfad = str(verz / "signnext.db")
     db.init(db_pfad)
     app.register_blueprint(api.bp)
+    app.register_blueprint(zugang.bp)
 
     @app.errorhandler(413)
     def _zu_gross(_):

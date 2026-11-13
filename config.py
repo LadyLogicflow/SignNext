@@ -52,3 +52,27 @@ def basis_url() -> str | None:
 def stelle_rolle_variante() -> str:
     """'an': Rolle je Beratungsstelle aus /portal/me (Feld stelle_rolle, sobald SortNext es liefert). 'aus' (Voreinstellung): Rolle des Nutzers."""
     return "an" if os.environ.get("SIGNNEXT_STELLE_ROLLE", "") == "an" else "aus"
+
+
+def versand_modus() -> str:
+    """'aus' (Standard, fail closed): es wird nichts versendet. 'testadressen': nur an Adressen aus SIGNNEXT_VERSAND_TESTADRESSEN. 'an': Echtversand.
+    'an' setzt nur der Betreiber, nach der Freigabe durch catrin und nach dem Produktionsbeleg (echte Testmail mit geprüfter Verbindung)."""
+    wert = os.environ.get("SIGNNEXT_VERSAND", "")
+    return wert if wert in ("testadressen", "an") else "aus"
+
+
+def versand_testadressen() -> set:
+    return {a.strip().lower() for a in os.environ.get("SIGNNEXT_VERSAND_TESTADRESSEN", "").split(",") if a.strip()}
+
+
+def aufbewahrung_tage() -> int:
+    """Wie lange unterschriebenes Dokument und Protokoll nach der Unterschrift aufbewahrt werden (Standard 90). Steht so in der Datenschutzinformation."""
+    try:
+        return max(1, int(os.environ.get("SIGNNEXT_AUFBEWAHRUNG_TAGE", "90")))
+    except ValueError:
+        return 90
+
+
+def ip_speicherung() -> str:
+    """'voll' (Standard, laut Anforderung: IP nur im Nachweisprotokoll) oder 'gekuerzt'. Steht so in der Datenschutzinformation."""
+    return "gekuerzt" if os.environ.get("SIGNNEXT_IP_SPEICHERUNG", "") == "gekuerzt" else "voll"
