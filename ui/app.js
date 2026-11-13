@@ -20,9 +20,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     try {
         const hinweis = await api('GET', '/hinweis');
-        document.getElementById('hinweis-text').innerHTML = `<p><strong>${hinweis.kennung || ''}</strong></p><p>${hinweis.zugangshinweis || 'Bitte geben Sie Ihr Geburtsdatum ein.'}</p>`;
+        const hinweisEl = document.getElementById('hinweis-text');
+        hinweisEl.textContent = `${hinweis.kennung || ''}\n\n${hinweis.zugangshinweis || 'Bitte geben Sie Ihr Geburtsdatum ein.'}`;
         if (!hinweis.freigegeben) {
-            document.getElementById('hinweis-text').innerHTML += '<p class="warning"><strong>[ENTWURF - Texte noch nicht freigegeben]</strong></p>';
+            hinweisEl.textContent += '\n\n[ENTWURF - Texte noch nicht freigegeben]';
         }
     } catch (err) {
         console.error(err);
@@ -46,6 +47,11 @@ async function api(method, path, body = null) {
     const data = await res.json();
 
     if (!res.ok) {
+        if (res.status === 401 && data.error === 'sitzung_ungueltig') {
+            alert('Ihre Sitzung ist abgelaufen. Bitte laden Sie die Seite neu.');
+            location.reload();
+            throw new Error('Sitzung abgelaufen');
+        }
         if (data.error === 'angaben_stimmen_nicht') {
             throw {code: 'wrong_code', data};
         }
@@ -103,10 +109,19 @@ async function loadSeiten() {
         container.appendChild(img);
 
         try {
-            const blob = await fetch(`${API}/seite/${i}`, {credentials: 'same-origin'}).then(r => r.blob());
+            const r = await fetch(`${API}/seite/${i}`, {credentials: 'same-origin'});
+            if (!r.ok) {
+                if (r.status === 401) {
+                    alert('Sitzung abgelaufen. Bitte geben Sie Ihr Geburtsdatum erneut ein.');
+                    showStep('step-hinweis');
+                    return;
+                }
+                throw new Error(`Seite ${i} konnte nicht geladen werden (${r.status})`);
+            }
+            const blob = await r.blob();
             img.src = URL.createObjectURL(blob);
         } catch (err) {
-            console.error(`Seite ${i} Fehler:`, err);
+            alert(`Fehler beim Laden von Seite ${i}: ${err.message}`);
         }
     }
 }
@@ -133,13 +148,10 @@ async function loadTexte() {
     textHash = texte.hash;
 
     const datenschutz = document.getElementById('datenschutz-text');
-    datenschutz.innerHTML = `<h3>Datenschutzinformation</h3>${texte.texte.datenschutz || '[PLATZHALTER]'}<hr><p><strong>${texte.texte.unterschriftssatz || '[PLATZHALTER]'}</strong></p>`;
+    const dsText = `Datenschutzinformation\n\n${texte.texte.datenschutz || '[PLATZHALTER]'}\n\n---\n\n${texte.texte.unterschriftssatz || '[PLATZHALTER]'}`;
+    datenschutz.textContent = texte.freigegeben ? dsText : `[ENTWURF - Texte noch nicht freigegeben]\n\n${dsText}`;
 
     document.getElementById('haken-text').textContent = texte.texte.haken || 'Ich habe die Datenschutzinformation gelesen';
-
-    if (!texte.freigegeben) {
-        datenschutz.innerHTML = '<p class="warning"><strong>[ENTWURF - Texte noch nicht freigegeben]</strong></p>' + datenschutz.innerHTML;
-    }
 }
 
 function setupCanvas() {
@@ -154,11 +166,22 @@ function setupCanvas() {
     let lastX = 0;
     let lastY = 0;
 
+    const getCoords = (e, rect) => {
+        const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+        const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        return {
+            x: (clientX - rect.left) * scaleX,
+            y: (clientY - rect.top) * scaleY
+        };
+    };
+
     const startDraw = (e) => {
+        e.preventDefault();
         drawing = true;
         const rect = canvas.getBoundingClientRect();
-        const x = (e.clientX || e.touches[0].clientX) - rect.left;
-        const y = (e.clientY || e.touches[0].clientY) - rect.top;
+        const {x, y} = getCoords(e, rect);
         lastX = x;
         lastY = y;
         canvasHasContent = true;
@@ -168,8 +191,7 @@ function setupCanvas() {
         if (!drawing) return;
         e.preventDefault();
         const rect = canvas.getBoundingClientRect();
-        const x = (e.clientX || e.touches[0].clientX) - rect.left;
-        const y = (e.clientY || e.touches[0].clientY) - rect.top;
+        const {x, y} = getCoords(e, rect);
 
         ctx.beginPath();
         ctx.moveTo(lastX, lastY);
@@ -230,6 +252,7 @@ async function sendUnterschrift() {
             const ctx = canvas.getContext('2d');
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             canvasHasContent = false;
+            await loadTexte();
             alert(`Person ${currentPerson} ist jetzt an der Reihe`);
         }
     } catch (err) {
