@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Download - SignNext</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Ihr unterschriebenes Dokument</h1>
+        </header>
+
+        <main id="app">
+            <div id="loading" class="loading">Lade Download...</div>
+
+            <div id="error" class="hidden">
+                <div class="error" id="error-text"></div>
+            </div>
+
+            <div id="download-ready" class="hidden">
+                <section class="card">
+                    <h2>Download bereit</h2>
+                    <div class="info-box">
+                        <p id="download-info"></p>
+                    </div>
+                    <button id="btn-download" class="btn btn-primary">Dokument herunterladen</button>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <script src="download.js"></script>
+</body>
+</html>
