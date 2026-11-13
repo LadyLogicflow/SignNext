@@ -22,7 +22,7 @@ PRODUKT = "signnext"
 CACHE_SEKUNDEN = 30
 # Rolle des Nutzers laut SortNext → Rolle in SignNext. Alles andere (super_admin, unbekannt) bekommt keinen Zugriff auf Mandantendaten.
 ROLLEN = {"bst_admin": "admin", "bst_user": "mitarbeiter", "mitarbeiter": "mitarbeiter"}
-REFERENZ = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+REFERENZ = re.compile(r"^[A-Za-z0-9_-]{1,64}\Z")
 
 _cache: dict[str, tuple[float, dict]] = {}
 _cache_sperre = threading.Lock()

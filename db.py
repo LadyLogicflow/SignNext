@@ -295,7 +295,7 @@ def audit_in(c, mandant_ref: str | None, nutzer: str, aktion: str, details: str 
 
 # --- Vorgänge und Dokumente: immer mit Mandantenfilter ---
 
-REFERENZ = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+REFERENZ = re.compile(r"^[A-Za-z0-9_-]{1,64}\Z")
 VORGANG_FELDER = ("status", "personen", "abgleich", "bestaetigt_von", "bestaetigt_am", "email_enc", "email_herkunft", "code_hmac", "code_kid", "datum_herkunft",
                   "personen_herkunft", "versendet_am", "versand_fehler", "versenden_seit", "unterschrieben_am", "abschluss_seit", "abschluss_versuche", "abgeschlossen_am",
                   "aufbewahrung_tage", "aufbewahrung_bis", "erinnerungen_aus", "link_sperre_gemeldet", "bst_info_am", "mitglied_mail_am", "mitglied_mail_versuche",

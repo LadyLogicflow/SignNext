@@ -1164,6 +1164,41 @@ def texte_ordner():
     return texte.ORDNER
 
 
+# ======================================================================================================== Zeilenende in Prüfmustern
+
+class TestZeilenende(B5):
+    """Python-'$' passt auch vor einem abschließenden Zeilenumbruch. Alle Prüfmuster für Referenz, Mailadresse und Hostnamen müssen das echte Ende verlangen."""
+
+    def test_referenz_mit_zeilenumbruch_ist_ungueltig(self):
+        import schluessel
+        for ref in ("1001\n", "1001\r\n", "\n1001", "10 01", "1001 ", ""):
+            with self.assertRaises(ValueError, msg=repr(ref)):
+                db.dokumente_verzeichnis(ref)
+            with self.assertRaises(Exception, msg=repr(ref)):
+                schluessel.verschluesseln(ref, "x", "y")
+        self.assertEqual(db.dokumente_verzeichnis("1001").name, "1001")
+
+    def test_portal_referenz_mit_zeilenumbruch_wird_abgewiesen(self):
+        from tests.test_baustein1 import me
+        for ref in ("10\n01", "1001\nX", "10\r01"):                                   # Leerraum außen schneidet das Portal ab, innen ist er ungültig
+            self.als("tx", me(email="x@test.example", ref=ref))
+            r = self.c.get("/api/v1/me")
+            self.assertEqual((r.status_code, r.get_json()["grund"]), (403, "referenz_ungueltig"), repr(ref))
+
+    def test_mailadresse_und_hostname_mit_zeilenumbruch(self):
+        import mailer
+        for adresse in ("a@example.org\n", "a@example.org\r\n", "a@example.org\nBcc: x@y.de"):
+            self.assertFalse(mailer.adresse_gueltig(adresse), repr(adresse))
+        self.assertTrue(mailer.adresse_gueltig("a@example.org"))
+        self.assertFalse(mailer._HOSTNAME.match("mail.example.org\n"))
+        self.assertTrue(mailer._HOSTNAME.match("mail.example.org"))
+
+    def test_mail_aus_dem_pdf_mit_zeilenumbruch(self):
+        import pdf_analyse
+        self.assertIsNone(pdf_analyse.MAIL.match("a@example.org\n"))
+        self.assertTrue(pdf_analyse.MAIL.match("a@example.org"))
+
+
 # ======================================================================================================== Thread, Betrieb
 
 class TestBetrieb(unittest.TestCase):
@@ -1199,7 +1234,7 @@ class TestBetrieb(unittest.TestCase):
 
     def test_version_und_abhaengigkeiten(self):
         wurzel = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.assertEqual(open(os.path.join(wurzel, "VERSION")).read().strip(), "0.5.3")
+        self.assertEqual(open(os.path.join(wurzel, "VERSION")).read().strip(), "0.5.4")
         req = open(os.path.join(wurzel, "requirements.txt")).read()
         self.assertRegex(req, r"(?m)^reportlab==\d+\.\d+\.\d+$")
         self.assertNotRegex(req.lower(), r"pymupdf|fitz")

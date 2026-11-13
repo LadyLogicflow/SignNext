@@ -19,7 +19,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 import config
 
-REFERENZ = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+REFERENZ = re.compile(r"^[A-Za-z0-9_-]{1,64}\Z")
 
 
 class HauptschluesselFehlt(Exception):

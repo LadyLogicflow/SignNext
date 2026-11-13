@@ -15,7 +15,7 @@ from pdf_pruefung import Abgelehnt, pruefe
 
 MITWIRKUNG = "bei der anfertigung dieser erklärung hat mitgewirkt"
 SIG_DATUM = re.compile(r"^.{1,60},\s*\d{2}\.\d{2}\.\d{4}\s*$")
-MAIL = re.compile(r"^[^@\s;,<>]{1,64}@[^@\s;,<>]{1,190}\.[^@\s;,<>]{2,24}$")
+MAIL = re.compile(r"^[^@\s;,<>]{1,64}@[^@\s;,<>]{1,190}\.[^@\s;,<>]{2,24}\Z")
 STEUERNUMMER = re.compile(r"\d{2,3}/\d{3,4}/\d{4,5}")
 ID11 = re.compile(r"(?<!\d)\d{11}(?!\d)")
 HOEHE_STELLE = 40.0
