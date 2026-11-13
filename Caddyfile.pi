@@ -1,0 +1,9 @@
+# Vorsatz für die Testinstanz auf dem Pi: eigenes Testzertifikat (Caddy "tls internal"), Weiterleitung an die App.
+{
+	auto_https disable_redirects
+}
+
+{$SIGNNEXT_PI_ADRESSE} {
+	tls internal
+	reverse_proxy signnext:8000
+}

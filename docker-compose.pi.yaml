@@ -1,0 +1,50 @@
+# TESTINSTANZ auf dem Raspberry Pi (kein Coolify, kein Produktivbetrieb). Anleitung: PI-TESTINSTANZ.md
+#
+# Zwei Dienste: die App und ein kleiner Vorsatz (Caddy) mit eigenem Testzertifikat. Der Vorsatz ist nötig, weil SignNext nur über https arbeitet
+# (Cookies mit Secure, Link-Adresse https). Der Browser meldet beim ersten Aufruf eine unbekannte Zertifizierungsstelle: einmal bestätigen.
+#
+# Pflicht in der Datei .env neben dieser Datei (Vorlage: pi.env.beispiel, die Datei .env nie weitergeben oder einchecken):
+#   SIGNNEXT_HAUPTSCHLUESSEL   mindestens 32 Zeichen, zufällig
+#   SIGNNEXT_PI_ADRESSE        Adresse oder Name des Pi im Heimnetz (z. B. 192.168.1.50 oder pi.local), unter der die Testinstanz erreicht wird
+services:
+  signnext:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: signnext:test
+    restart: unless-stopped
+    expose:
+      - "8000"
+    environment:
+      SIGNNEXT_HAUPTSCHLUESSEL: "${SIGNNEXT_HAUPTSCHLUESSEL:?SIGNNEXT_HAUPTSCHLUESSEL fehlt (.env)}"
+      SIGNNEXT_BASIS_URL: "https://${SIGNNEXT_PI_ADRESSE:?SIGNNEXT_PI_ADRESSE fehlt (.env)}"
+      SIGNNEXT_DEMO: "1"
+      SIGNNEXT_VERSAND: "aus"
+      SIGNNEXT_DATEN: "/data"
+      SIGNNEXT_PROXIES: "1"
+      SORTNEXT_BASE_URL: "${SORTNEXT_BASE_URL:-https://sortnext.bst-next.de}"
+    volumes:
+      - signnext-daten:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+  vorsatz:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - signnext
+    ports:
+      - "443:443"
+    environment:
+      SIGNNEXT_PI_ADRESSE: "${SIGNNEXT_PI_ADRESSE}"
+    volumes:
+      - ./Caddyfile.pi:/etc/caddy/Caddyfile:ro
+      - caddy-daten:/data
+
+volumes:
+  signnext-daten:
+  caddy-daten:
