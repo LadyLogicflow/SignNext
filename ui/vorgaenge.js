@@ -72,10 +72,16 @@ async function loadVorgaenge() {
 
 function getStatusText(status) {
     const statusMap = {
+        'bestaetigung_noetig': 'Bestätigung nötig',
         'bereit': 'Bereit',
+        'versenden': 'Wird versendet',
         'versendet': 'Versendet',
+        'versand_unklar': 'Versand unklar',
         'unterschrieben': 'Unterschrieben',
-        'abgeschlossen': 'Abgeschlossen'
+        'abschluss_laeuft': 'Abschluss läuft',
+        'abgeschlossen': 'Abgeschlossen',
+        'abschluss_fehlgeschlagen': 'Abschluss fehlgeschlagen',
+        'geloescht': 'Gelöscht'
     };
     return statusMap[status] || status;
 }

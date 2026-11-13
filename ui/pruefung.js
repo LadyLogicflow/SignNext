@@ -95,8 +95,14 @@ async function loadPruefung() {
         }
         setHerkunft('pers-herkunft', personen.herkunft);
 
-        // Erinnerungen-Status
-        document.getElementById('erinnerungen-aktiv').checked = pruefungData.erinnerungen_aktiv || false;
+        // Erinnerungen-Status (nur bei versendet)
+        const erinnerungenCheckbox = document.getElementById('erinnerungen-aktiv');
+        if (pruefungData.status === 'versendet') {
+            erinnerungenCheckbox.checked = !pruefungData.erinnerungen_aus;
+            erinnerungenCheckbox.disabled = false;
+        } else {
+            erinnerungenCheckbox.disabled = true;
+        }
 
         document.getElementById('loading').classList.add('hidden');
         document.getElementById('pruefung').classList.remove('hidden');
@@ -218,10 +224,10 @@ async function loadMailZugang() {
 }
 
 async function saveErinnerungen() {
-    const aktiv = document.getElementById('erinnerungen-aktiv').checked;
+    const an = document.getElementById('erinnerungen-aktiv').checked;
 
     try {
-        await api('PUT', `/vorgaenge/${vorgangId}/erinnerungen`, {erinnerungen_aktiv: aktiv});
+        await api('PUT', `/vorgaenge/${vorgangId}/erinnerungen`, {an});
     } catch (err) {
         showError('erinnerungen-error', err.message);
     }

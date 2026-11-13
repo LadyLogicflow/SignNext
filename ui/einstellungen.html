@@ -17,10 +17,24 @@
 
             <div id="einstellungen" class="hidden">
                 <section class="card">
-                    <h2>Aufbewahrung</h2>
+                    <h2>Datenschutzinformation</h2>
                     <form id="form-einstellungen">
                         <div class="form-group">
-                            <label for="aufbewahrung-tage">Aufbewahrungsdauer (Tage)</label>
+                            <label for="verantwortlicher">Verantwortlicher *</label>
+                            <textarea id="verantwortlicher" rows="4" minlength="5" maxlength="500" required placeholder="Name, Anschrift, Kontakt"></textarea>
+                            <small>5-500 Zeichen (Name, Anschrift, Kontakt)</small>
+                            <div id="verantwortlicher-error" class="field-error hidden"></div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="datenschutz-link">Datenschutz-Link *</label>
+                            <input type="url" id="datenschutz-link" required placeholder="https://...">
+                            <small>https-URL zu Ihrer Datenschutzerklärung</small>
+                            <div id="link-error" class="field-error hidden"></div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="aufbewahrung-tage">Aufbewahrungsdauer (Tage) *</label>
                             <input type="number" id="aufbewahrung-tage" min="30" max="365" required>
                             <small>Zwischen 30 und 365 Tagen</small>
                             <div id="tage-error" class="field-error hidden"></div>
