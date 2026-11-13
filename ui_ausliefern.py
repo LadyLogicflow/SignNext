@@ -6,6 +6,7 @@ Seiten (alle ohne Anmeldung ausgeliefert; die Daten kommen erst über die API un
   /pruefung       Prüfansicht der Beratungsstelle (?id=<Vorgang>)
   /einstellungen  Einstellungen der Beratungsstelle
   /vorgaenge      Vorgangsliste der Beratungsstelle ( / leitet hierher)
+  /mail-zugang    Mail-Zugang der Beratungsstelle (Server, Absender, Testmail)
 Dazu die Dateien ``*.js`` und ``style.css`` aus ``ui/`` unter ``/<Dateiname>`` (die Seiten binden sie relativ ein).
 
 Sicherheitsheader auf jeder Seite: strenge Content-Security-Policy (Skripte nur von der eigenen Adresse, keine Inline-Skripte, keine fremden Quellen, keine Einbettung
@@ -17,7 +18,8 @@ from flask import Blueprint, Response, abort, redirect, send_from_directory
 
 bp = Blueprint("ui", __name__)
 ORDNER = Path(__file__).resolve().parent / "ui"
-SEITEN = {"/u": "unterschrift.html", "/d": "download.html", "/pruefung": "pruefung.html", "/einstellungen": "einstellungen.html", "/vorgaenge": "vorgaenge.html"}
+SEITEN = {"/u": "unterschrift.html", "/d": "download.html", "/pruefung": "pruefung.html", "/einstellungen": "einstellungen.html", "/vorgaenge": "vorgaenge.html",
+          "/mail-zugang": "mail-zugang.html"}
 ASSET = re.compile(r"^[a-z][a-z0-9_-]{0,40}\.(js|css)$")
 CSP = ("default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self'; frame-src 'self'; "
        "form-action 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'")

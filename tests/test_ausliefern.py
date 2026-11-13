@@ -9,7 +9,8 @@ import ui_ausliefern
 from tests.test_baustein1 import Basis
 
 UI = Path(__file__).resolve().parent.parent / "ui"
-SEITEN = {"/u": "unterschrift.html", "/d": "download.html", "/pruefung": "pruefung.html", "/einstellungen": "einstellungen.html", "/vorgaenge": "vorgaenge.html"}
+SEITEN = {"/u": "unterschrift.html", "/d": "download.html", "/pruefung": "pruefung.html", "/einstellungen": "einstellungen.html", "/vorgaenge": "vorgaenge.html",
+          "/mail-zugang": "mail-zugang.html"}
 
 
 class Sammler(HTMLParser):
