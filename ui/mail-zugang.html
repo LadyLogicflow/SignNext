@@ -20,10 +20,10 @@
                     <h2>SMTP-Einstellungen</h2>
                     <form id="form-mail">
                         <div class="form-group">
-                            <label for="server">Server *</label>
-                            <input type="text" id="server" required placeholder="smtp.example.com">
+                            <label for="host">Server *</label>
+                            <input type="text" id="host" required placeholder="smtp.example.com">
                             <small>Hostname des SMTP-Servers</small>
-                            <div id="server-error" class="field-error hidden"></div>
+                            <div id="host-error" class="field-error hidden"></div>
                         </div>
 
                         <div class="form-group">
@@ -50,16 +50,23 @@
                         </div>
 
                         <div class="form-group">
-                            <label for="absender">Absender *</label>
-                            <input type="email" id="absender" required placeholder="noreply@example.com">
-                            <small>E-Mail-Adresse für ausgehende Mails</small>
-                            <div id="absender-error" class="field-error hidden"></div>
+                            <label for="absender-name">Absender-Name *</label>
+                            <input type="text" id="absender-name" required placeholder="Ihre Beratungsstelle">
+                            <small>Name für ausgehende Mails</small>
+                            <div id="absender-name-error" class="field-error hidden"></div>
                         </div>
 
                         <div class="form-group">
-                            <label for="signaturtext">Signaturtext</label>
-                            <textarea id="signaturtext" rows="4" placeholder="Ihre Beratungsstelle"></textarea>
-                            <div id="signaturtext-error" class="field-error hidden"></div>
+                            <label for="absender-adresse">Absender-Adresse *</label>
+                            <input type="email" id="absender-adresse" required placeholder="noreply@example.com">
+                            <small>E-Mail-Adresse für ausgehende Mails</small>
+                            <div id="absender-adresse-error" class="field-error hidden"></div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="signatur">Signaturtext</label>
+                            <textarea id="signatur" rows="4" placeholder="Ihre Beratungsstelle"></textarea>
+                            <div id="signatur-error" class="field-error hidden"></div>
                         </div>
 
                         <div class="form-group">

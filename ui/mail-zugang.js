@@ -11,10 +11,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('btn-delete').addEventListener('click', deleteMailZugang);
 
     // Live-Validierung
-    document.getElementById('server').addEventListener('input', validateServer);
+    document.getElementById('host').addEventListener('input', validateHost);
     document.getElementById('port').addEventListener('change', validatePort);
     document.getElementById('benutzer').addEventListener('input', validateBenutzer);
-    document.getElementById('absender').addEventListener('input', validateAbsender);
+    document.getElementById('absender-name').addEventListener('input', validateAbsenderName);
+    document.getElementById('absender-adresse').addEventListener('input', validateAbsenderAdresse);
 });
 
 async function api(method, path, body = null) {
@@ -43,13 +44,14 @@ async function loadMailZugang() {
     try {
         const data = await api('GET', '/mail-zugang');
 
-        if (data && data.server) {
+        if (data && data.konfiguriert) {
             hasExisting = true;
-            document.getElementById('server').value = data.server || '';
+            document.getElementById('host').value = data.host || '';
             document.getElementById('port').value = data.port || '';
             document.getElementById('benutzer').value = data.benutzer || '';
-            document.getElementById('absender').value = data.absender || '';
-            document.getElementById('signaturtext').value = data.signaturtext || '';
+            document.getElementById('absender-name').value = data.absender_name || '';
+            document.getElementById('absender-adresse').value = data.absender_adresse || '';
+            document.getElementById('signatur').value = data.signatur || '';
             document.getElementById('bcc-an-absender').checked = data.bcc_an_absender || false;
         } else {
             hasExisting = false;
@@ -68,21 +70,21 @@ async function loadMailZugang() {
     }
 }
 
-function validateServer() {
-    const input = document.getElementById('server');
+function validateHost() {
+    const input = document.getElementById('host');
     const value = input.value.trim();
 
     if (!value) {
-        showError('server-error', 'Server ist erforderlich');
+        showError('host-error', 'Server ist erforderlich');
         return false;
     }
 
     if (!/^[a-zA-Z0-9.-]+$/.test(value)) {
-        showError('server-error', 'Ungültiger Hostname');
+        showError('host-error', 'Ungültiger Hostname');
         return false;
     }
 
-    hideError('server-error');
+    hideError('host-error');
     return true;
 }
 
@@ -117,28 +119,41 @@ function validateBenutzer() {
     return true;
 }
 
-function validateAbsender() {
-    const input = document.getElementById('absender');
+function validateAbsenderName() {
+    const input = document.getElementById('absender-name');
     const value = input.value.trim();
 
     if (!value) {
-        showError('absender-error', 'Absender ist erforderlich');
+        showError('absender-name-error', 'Absender-Name ist erforderlich');
+        return false;
+    }
+
+    hideError('absender-name-error');
+    return true;
+}
+
+function validateAbsenderAdresse() {
+    const input = document.getElementById('absender-adresse');
+    const value = input.value.trim();
+
+    if (!value) {
+        showError('absender-adresse-error', 'Absender-Adresse ist erforderlich');
         return false;
     }
 
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
-        showError('absender-error', 'Keine gültige E-Mail-Adresse');
+        showError('absender-adresse-error', 'Keine gültige E-Mail-Adresse');
         return false;
     }
 
-    hideError('absender-error');
+    hideError('absender-adresse-error');
     return true;
 }
 
 async function saveMailZugang(e) {
     e.preventDefault();
 
-    if (!validateServer() || !validatePort() || !validateBenutzer() || !validateAbsender()) {
+    if (!validateHost() || !validatePort() || !validateBenutzer() || !validateAbsenderName() || !validateAbsenderAdresse()) {
         alert('Bitte Fehler beheben');
         return;
     }
@@ -150,11 +165,12 @@ async function saveMailZugang(e) {
     }
 
     const data = {
-        server: document.getElementById('server').value.trim(),
+        host: document.getElementById('host').value.trim(),
         port: parseInt(document.getElementById('port').value),
         benutzer: document.getElementById('benutzer').value.trim(),
-        absender: document.getElementById('absender').value.trim(),
-        signaturtext: document.getElementById('signaturtext').value.trim() || null,
+        absender_name: document.getElementById('absender-name').value.trim(),
+        absender_adresse: document.getElementById('absender-adresse').value.trim(),
+        signatur: document.getElementById('signatur').value.trim() || null,
         bcc_an_absender: document.getElementById('bcc-an-absender').checked
     };
 
@@ -191,17 +207,20 @@ async function testMailZugang() {
         let html = '<div class="success-text"><strong>✓ Testmail erfolgreich versendet</strong></div>';
         html += '<dl style="margin-top: 1rem;">';
 
-        if (result.tls_version) {
-            html += '<dt>TLS-Version:</dt><dd>' + escapeHtml(result.tls_version) + '</dd>';
-        }
-        if (result.verfahren) {
-            html += '<dt>Verfahren:</dt><dd>' + escapeHtml(result.verfahren) + '</dd>';
-        }
-        if (result.zertifikat_gueltig_bis) {
-            html += '<dt>Zertifikat gültig bis:</dt><dd>' + escapeHtml(result.zertifikat_gueltig_bis) + '</dd>';
-        }
-        if (result.aussteller) {
-            html += '<dt>Aussteller:</dt><dd>' + escapeHtml(result.aussteller) + '</dd>';
+        if (result.verbindung) {
+            const v = result.verbindung;
+            if (v.tls_version) {
+                html += '<dt>TLS-Version:</dt><dd>' + escapeHtml(v.tls_version) + '</dd>';
+            }
+            if (v.cipher) {
+                html += '<dt>Verfahren:</dt><dd>' + escapeHtml(v.cipher) + '</dd>';
+            }
+            if (v.zertifikat_gueltig_bis) {
+                html += '<dt>Zertifikat gültig bis:</dt><dd>' + escapeHtml(v.zertifikat_gueltig_bis) + '</dd>';
+            }
+            if (v.aussteller) {
+                html += '<dt>Aussteller:</dt><dd>' + escapeHtml(v.aussteller) + '</dd>';
+            }
         }
 
         html += '</dl>';
