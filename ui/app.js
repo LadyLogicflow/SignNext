@@ -76,11 +76,12 @@ async function checkCode(e) {
     } catch (err) {
         if (err.code === 'wrong_code') {
             const {versuch, von, gesperrt} = err.data;
+            const info = document.getElementById('versuch-info');
             if (gesperrt) {
                 showError('code-error', 'Der Link wurde nach zu vielen Fehlversuchen gesperrt');
+                info.classList.add('hidden');
             } else {
                 showError('code-error', 'Das Geburtsdatum stimmt nicht');
-                const info = document.getElementById('versuch-info');
                 info.textContent = `Versuch ${versuch} von ${von}`;
                 info.classList.remove('hidden');
             }
@@ -121,7 +122,8 @@ async function loadSeiten() {
             const blob = await r.blob();
             img.src = URL.createObjectURL(blob);
         } catch (err) {
-            alert(`Fehler beim Laden von Seite ${i}: ${err.message}`);
+            alert(`Fehler beim Laden der Seiten: ${err.message}`);
+            return;
         }
     }
 }
