@@ -10,6 +10,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 import abschluss
+import berlinzeit
 import config
 import db
 import download
@@ -257,6 +258,22 @@ def fristen_aufbewahrung(jetzt: datetime) -> int:
 
 # --- 9. Aufräumen -------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
+def zaehleintraege_loeschen(jetzt: datetime) -> int:
+    """Zähleinträge (Vorgangszeilen ohne Inhalt) werden 3 Jahre nach Ende des Kalenderjahres des Versands gelöscht (rollierend, unabhängig vom Vertragsende).
+    Nur Einträge im Zustand 'geloescht' (der Inhalt ist schon weg). Löschprotokoll: nur Zahlen."""
+    jahr_jetzt = int(berlinzeit.monat(_z(jetzt))[:4])
+    grenze = jahr_jetzt - db.ZAEHLEINTRAG_JAHRE - 1                  # Versandjahr <= grenze: Ende dieses Jahres + 3 Jahre ist erreicht
+    with db.verbindung() as c:
+        je_jahr = c.execute("SELECT substr(zaehlmonat, 1, 4) AS jahr, COUNT(*) AS n FROM vorgang WHERE status='geloescht' AND zaehlmonat IS NOT NULL AND CAST(substr(zaehlmonat, 1, 4) AS INTEGER) <= ? "
+                            "GROUP BY 1", (grenze,)).fetchall()
+        n = 0
+        for z in je_jahr:
+            c.execute("DELETE FROM vorgang WHERE status='geloescht' AND zaehlmonat IS NOT NULL AND substr(zaehlmonat, 1, 4)=?", (z["jahr"],))
+            db.loeschprotokoll_schreiben(c, "zaehleintraege", "-", None, {"eintraege": z["n"], "jahr": int(z["jahr"])}, jetzt)
+            n += z["n"]
+    return n
+
+
 def aufraeumen(jetzt: datetime) -> int:
     n = 0
     alt = _z(jetzt - timedelta(hours=24))
@@ -276,7 +293,7 @@ def lauf(jetzt: datetime | None = None) -> dict:
     z: dict = {}
     for name, f in (("recovery", recovery), ("abschluesse", abschluesse), ("token_entzug", token_entzug), ("erinnerungen", erinnerungen), ("stellen_hinweise", stellen_hinweise),
                     ("mitglied_bestaetigung", mitglied_bestaetigung), ("fristen_nicht_unterschrieben", fristen_nicht_unterschrieben), ("fristen_aufbewahrung", fristen_aufbewahrung),
-                    ("aufraeumen", aufraeumen)):
+                    ("zaehleintraege", zaehleintraege_loeschen), ("aufraeumen", aufraeumen)):
         _schritt(name, z, f, jetzt)
     return z
 

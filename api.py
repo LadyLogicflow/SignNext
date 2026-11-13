@@ -10,6 +10,7 @@ import mail_zugang
 import pdf_eingang
 import pruefung
 import schluessel
+import tarif
 import versand
 from flask import Response
 from pdf_pruefung import MAX_BYTES
@@ -43,6 +44,7 @@ def vorgang(vorgang_id):
 
 
 MELDUNGEN = {
+    "kontingent_erreicht": "Das Kontingent für diesen Monat ist erreicht. Bitte wenden Sie sich an den Betreiber.",
     "dateizahl": "Bitte eine oder zwei PDF-Dateien senden (Feld dateien).",
     "zu_gross": "Die Datei ist zu groß.",
     "kein_pdf": "Das ist keine PDF-Datei.",
@@ -179,6 +181,9 @@ def vorgang_versenden(vorgang_id):
     except versand.Fehler as f:
         audit("versand_abgebrochen", "id=%d grund=%s" % (vorgang_id, f.code))
         antwort = {"error": f.code, "meldung": MELDUNGEN.get(f.code, f.code)}
+        if f.code == "kontingent_erreicht":
+            antwort["meldung"] = (antwort["meldung"] + " " + config.upgrade_hinweis()).strip()
+            antwort.update({k: tarif.info(g.nutzer["mandant_ref"])[k] for k in ("tarif", "limit", "genutzt", "zeitraum")})
         if f.einzelheiten:
             antwort["fehlend"] = f.einzelheiten
         return jsonify(antwort), f.status
@@ -348,3 +353,10 @@ def erinnerungen_schalten(vorgang_id):
     db.vorgang_aendern(mandant, vorgang_id, erinnerungen_aus=0 if d["an"] else 1)
     audit("erinnerungen_an" if d["an"] else "erinnerungen_aus", "id=%d" % vorgang_id)
     return jsonify({"vorgang_id": vorgang_id, "erinnerungen_aus": not d["an"]})
+
+
+@bp.get("/tarif")
+@anmeldung_pflicht()
+def tarif_lesen():
+    """Tarif und Zählstand der Beratungsstelle (Kalendermonat, deutsche Zeit). Ohne Preis: Tarife und Preise setzt nur der Betreiber."""
+    return jsonify(tarif.info(g.nutzer["mandant_ref"]))

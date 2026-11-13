@@ -104,3 +104,25 @@ def aufbewahrung_standard() -> int:
 def betreiber_kontakt() -> str:
     """Kontaktweg des Betreibers für den Hinweis bei einem unerwarteten Abruf (SIGNNEXT_BETREIBER_KONTAKT, ohne Zeilenumbrüche). Leer = ohne Angabe."""
     return " ".join(os.environ.get("SIGNNEXT_BETREIBER_KONTAKT", "").split())[:200]
+
+
+# --- Baustein 6: Zählung und Tarif (SignNext rechnet nichts ab und stellt keine Rechnung; Preise sind nur ein einstellbarer Wert) ---
+TARIF_NAMEN = ("basis", "plus")
+TARIF_VORGABE = {"basis": (15, 0), "plus": (None, 0)}          # (Limit je Kalendermonat, Preis in Cent)
+
+
+def tarif_plus_referenzen() -> frozenset:
+    """Beratungsstellen, die von Anfang an im Tarif plus sind (SIGNNEXT_TARIF_PLUS_REFERENZEN, kommagetrennt; Standard: der Pilot 282874; leer = keine)."""
+    roh = os.environ.get("SIGNNEXT_TARIF_PLUS_REFERENZEN", "282874")
+    return frozenset(r for r in (x.strip() for x in roh.split(",")) if r and all(ch.isalnum() or ch in "_-" for ch in r) and len(r) <= 64)
+
+
+def sperre_modus() -> str:
+    """SIGNNEXT_SPERRE: 'auto' (Standard: Sperre am Limit nur, wenn der Preis des Tarifs größer 0 ist), 'an' (immer am Limit), 'aus' (nie, nur zählen)."""
+    wert = os.environ.get("SIGNNEXT_SPERRE", "auto")
+    return wert if wert in ("auto", "an", "aus") else "auto"
+
+
+def upgrade_hinweis() -> str:
+    """Optionaler kurzer Zusatz zur Meldung bei erreichtem Kontingent (SIGNNEXT_UPGRADE_HINWEIS, ohne Zeilenumbrüche). Leer = ohne."""
+    return " ".join(os.environ.get("SIGNNEXT_UPGRADE_HINWEIS", "").split())[:200]

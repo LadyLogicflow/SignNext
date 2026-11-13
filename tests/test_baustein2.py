@@ -611,7 +611,7 @@ class TestMandantentrennungUndLoeschung(RouteBasis):
         with db.verbindung() as c:
             for t in db.MANDANTENTABELLEN:
                 self.assertEqual(c.execute("SELECT COUNT(*) FROM %s WHERE mandant_ref='1001'" % t).fetchone()[0], 0, t)
-        self.assertEqual(db.mandant_loeschen("1001"), {"download_log": 0, "download_link": 0, "erinnerung": 0, "sitzung": 0, "unterschrift": 0, "zugriff_log": 0, "dokument": 0, "link": 0, "versand": 0, "mail_zugang": 0, "stelle_einstellung": 0, "vorgang": 0, "audit_log": 0, "dateien": 0})
+        self.assertEqual(db.mandant_loeschen("1001"), {"download_log": 0, "download_link": 0, "erinnerung": 0, "sitzung": 0, "unterschrift": 0, "zugriff_log": 0, "dokument": 0, "link": 0, "versand": 0, "mail_zugang": 0, "stelle_einstellung": 0, "stelle_tarif": 0, "zaehleintraege": 0, "vorgang": 0, "audit_log": 0, "dateien": 0})
 
     def test_migration_alter_datenbank(self):
         pfad = os.path.join(self.tmp.name, "alt.db")

@@ -914,7 +914,9 @@ class TestLoeschprotokoll(B5):
         nachher = self.protokoll()
         self.assertEqual(len(nachher), vorher + 1)                                     # alter Eintrag bleibt, Vertragsende kommt dazu
         self.assertEqual(nachher[-1]["art"], "vertragsende")
-        self.assertEqual(self.vorgang_zeilen(), 0)
+        self.assertEqual(self.vorgang_zeilen(), 1)                                     # der gezählte Vorgang bleibt als Zähleintrag ohne Inhalt (Baustein 6)
+        self.assertEqual(self.vorgang()["status"], "geloescht")
+        self.assertIsNone(self.vorgang()["email_enc"])
 
     def vorgang_zeilen(self):
         with db.verbindung() as c:
@@ -1234,7 +1236,7 @@ class TestBetrieb(unittest.TestCase):
 
     def test_version_und_abhaengigkeiten(self):
         wurzel = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.assertEqual(open(os.path.join(wurzel, "VERSION")).read().strip(), "0.5.4")
+        self.assertEqual(open(os.path.join(wurzel, "VERSION")).read().strip(), "0.6.0")
         req = open(os.path.join(wurzel, "requirements.txt")).read()
         self.assertRegex(req, r"(?m)^reportlab==\d+\.\d+\.\d+$")
         self.assertNotRegex(req.lower(), r"pymupdf|fitz")

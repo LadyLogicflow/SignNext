@@ -31,19 +31,7 @@ class Fehler(Exception):
     pass
 
 
-# --- Zeit: Anzeige in deutscher Zeit (MEZ/MESZ) ohne tzdata-Abhängigkeit ---------------------------------------------------------------------------------------------------------
-
-def _letzter_sonntag(jahr: int, monat: int) -> datetime:
-    d = datetime(jahr, monat, 31, 1, 0, 0, tzinfo=timezone.utc)      # Wechsel jeweils um 01:00 UTC
-    return d - timedelta(days=(d.weekday() + 1) % 7)
-
-
-def berlin(zeit_utc: str) -> str:
-    """'2026-11-13T14:05:00Z' → '13.11.2026 15:05:00 MEZ'. Sommerzeit von letztem Sonntag im März bis letztem Sonntag im Oktober (01:00 UTC)."""
-    dt = datetime.strptime(zeit_utc, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-    sommer = _letzter_sonntag(dt.year, 3) <= dt < _letzter_sonntag(dt.year, 10)
-    lokal = dt + timedelta(hours=2 if sommer else 1)
-    return lokal.strftime("%d.%m.%Y %H:%M:%S") + (" MESZ" if sommer else " MEZ")
+from berlinzeit import berlin  # noqa: E402,F401  (Anzeige in deutscher Zeit; liegt in berlinzeit.py, hier weiter erreichbar)
 
 
 # --- Einbetten -------------------------------------------------------------------------------------------------------------------------------------------------------------------------

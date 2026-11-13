@@ -49,7 +49,9 @@ CREATE TABLE IF NOT EXISTS vorgang (
     mitglied_mail_versuche INTEGER NOT NULL DEFAULT 0,
     vorwarnung_am TEXT,
     geloescht_am TEXT,
-    geloescht_grund TEXT
+    geloescht_grund TEXT,
+    gezaehlt_am TEXT,
+    zaehlmonat TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_vorgang_mandant ON vorgang(mandant_ref, id);
 -- Rolle: A = Protokoll, B = Anschreiben, M = zusammengeführtes PDF. Keine Personendaten, nur Hash, Größe, Seiten, Stellen (JSON) und der Dateiname.
@@ -210,6 +212,19 @@ CREATE TABLE IF NOT EXISTS download_log (
     zaehler INTEGER NOT NULL,
     bst_benachrichtigt_am TEXT
 );
+-- Tarife (Betreiber, per manage.py): Limit je Kalendermonat (NULL = unbegrenzt) und Preis in Cent (nur ein Wert, SignNext rechnet nichts ab).
+CREATE TABLE IF NOT EXISTS tarif (
+    name TEXT PRIMARY KEY,
+    limit_monat INTEGER,
+    preis_cent INTEGER NOT NULL DEFAULT 0
+);
+-- Zuordnung einer Beratungsstelle zu einem Tarif (ohne Zeile: Standard laut config.tarif_plus_referenzen, sonst basis).
+CREATE TABLE IF NOT EXISTS stelle_tarif (
+    mandant_ref TEXT PRIMARY KEY,
+    tarif TEXT NOT NULL,
+    geaendert_am TEXT NOT NULL,
+    geaendert_von TEXT NOT NULL
+);
 -- Löschprotokoll: NUR Zahlen. Keine Namen, keine Dateinamen, keine Mitgliedsdaten. mandant_ref und vorgang_id nur zur Zuordnung. Bleibt auch nach Vertragsende
 -- (Ausnahme von mandant_loeschen, siehe AUSNAHMEN) und wird nach ``loeschen_nach`` (Standard 3 Jahre) selbst gelöscht.
 CREATE TABLE IF NOT EXISTS loeschprotokoll (
@@ -253,7 +268,8 @@ def init(pfad: str) -> None:
                             ("versendet_am", "TEXT"), ("versand_fehler", "TEXT"), ("versenden_seit", "TEXT"), ("unterschrieben_am", "TEXT"), ("abschluss_seit", "TEXT"),
                             ("abschluss_versuche", "INTEGER NOT NULL DEFAULT 0"), ("abgeschlossen_am", "TEXT"), ("aufbewahrung_tage", "INTEGER"), ("aufbewahrung_bis", "TEXT"),
                             ("erinnerungen_aus", "INTEGER NOT NULL DEFAULT 0"), ("link_sperre_gemeldet", "INTEGER"), ("bst_info_am", "TEXT"), ("mitglied_mail_am", "TEXT"),
-                            ("mitglied_mail_versuche", "INTEGER NOT NULL DEFAULT 0"), ("vorwarnung_am", "TEXT"), ("geloescht_am", "TEXT"), ("geloescht_grund", "TEXT")):
+                            ("mitglied_mail_versuche", "INTEGER NOT NULL DEFAULT 0"), ("vorwarnung_am", "TEXT"), ("geloescht_am", "TEXT"), ("geloescht_grund", "TEXT"),
+                            ("gezaehlt_am", "TEXT"), ("zaehlmonat", "TEXT")):
             if spalte not in vorhanden:
                 c.execute("ALTER TABLE vorgang ADD COLUMN %s %s" % (spalte, typ))
         for tabelle, spalte, typ in (("link", "token_enc", "TEXT"), ("stelle_einstellung", "aufbewahrung_tage", "INTEGER"),
@@ -261,6 +277,13 @@ def init(pfad: str) -> None:
                                      ("download_link", "fehlversuche", "INTEGER NOT NULL DEFAULT 0")):
             if spalte not in {z["name"] for z in c.execute("PRAGMA table_info(%s)" % tabelle)}:
                 c.execute("ALTER TABLE %s ADD COLUMN %s %s" % (tabelle, spalte, typ))
+        c.execute("CREATE INDEX IF NOT EXISTS idx_vorgang_zaehlung ON vorgang(mandant_ref, zaehlmonat)")      # nach den Spalten (alte Datenbanken)
+        for name, (limit, preis) in config.TARIF_VORGABE.items():
+            c.execute("INSERT OR IGNORE INTO tarif(name, limit_monat, preis_cent) VALUES (?,?,?)", (name, limit, preis))
+        # Vorgänge aus früheren Fassungen: Was schon versendet wurde, zählt (im Monat des Versands).
+        import berlinzeit
+        for z in c.execute("SELECT id, versendet_am FROM vorgang WHERE versendet_am IS NOT NULL AND gezaehlt_am IS NULL").fetchall():
+            c.execute("UPDATE vorgang SET gezaehlt_am=?, zaehlmonat=? WHERE id=?", (z["versendet_am"], berlinzeit.monat(z["versendet_am"]), z["id"]))
 
 
 @contextmanager
@@ -299,7 +322,7 @@ REFERENZ = re.compile(r"^[A-Za-z0-9_-]{1,64}\Z")
 VORGANG_FELDER = ("status", "personen", "abgleich", "bestaetigt_von", "bestaetigt_am", "email_enc", "email_herkunft", "code_hmac", "code_kid", "datum_herkunft",
                   "personen_herkunft", "versendet_am", "versand_fehler", "versenden_seit", "unterschrieben_am", "abschluss_seit", "abschluss_versuche", "abgeschlossen_am",
                   "aufbewahrung_tage", "aufbewahrung_bis", "erinnerungen_aus", "link_sperre_gemeldet", "bst_info_am", "mitglied_mail_am", "mitglied_mail_versuche",
-                  "vorwarnung_am", "geloescht_am", "geloescht_grund")
+                  "vorwarnung_am", "geloescht_am", "geloescht_grund", "gezaehlt_am", "zaehlmonat")
 # Felder, die nach außen gehen dürfen (nie email_enc, code_hmac, code_kid)
 VORGANG_OEFFENTLICH = ("id", "status", "erstellt", "personen", "abgleich", "bestaetigt_von", "bestaetigt_am", "email_herkunft", "datum_herkunft", "personen_herkunft",
                        "versendet_am", "versand_fehler", "unterschrieben_am", "abgeschlossen_am", "aufbewahrung_bis", "erinnerungen_aus", "geloescht_am", "geloescht_grund")
@@ -399,16 +422,18 @@ def dokument_bytes(mandant_ref: str, vorgang_id: int, rolle: str) -> bytes | Non
 
 
 MANDANTENTABELLEN = ("download_log", "download_link", "erinnerung", "sitzung", "unterschrift", "zugriff_log", "dokument", "link", "versand", "mail_zugang",
-                     "stelle_einstellung", "vorgang", "audit_log")
+                     "stelle_einstellung", "stelle_tarif", "audit_log")
 # Tabellen mit mandant_ref, die bei der Löschung einer Beratungsstelle BLEIBEN: das Löschprotokoll (nur Zahlen, Nachweis der Löschung). Wer das ändern will (Irony prüft),
 # setzt LOESCHPROTOKOLL_BLEIBT auf False: dann wird es wie alle anderen Tabellen mitgelöscht, ohne weitere Änderung.
 LOESCHPROTOKOLL_BLEIBT = True
-AUSNAHMEN = ("loeschprotokoll",)
+AUSNAHMEN = ("loeschprotokoll", "vorgang")      # vorgang: Zähleinträge (ohne Inhalt) bleiben, siehe ZAEHLEINTRAG_BLEIBT
+ZAEHLEINTRAG_BLEIBT = True
+ZAEHLEINTRAG_JAHRE = 3                         # gelöscht, wenn 3 Jahre nach Ende des Kalenderjahres des Versands vergangen sind (jobs.py)
 LOESCHPROTOKOLL_JAHRE = 3
 
 
 def mandanten_tabellen_zum_loeschen() -> tuple:
-    return MANDANTENTABELLEN + (() if LOESCHPROTOKOLL_BLEIBT else AUSNAHMEN)
+    return MANDANTENTABELLEN + (() if LOESCHPROTOKOLL_BLEIBT else ("loeschprotokoll",))
 
 
 def loeschprotokoll_schreiben(c, art: str, mandant_ref: str, vorgang_id: int | None, zahlen: dict, jetzt_dt: datetime | None = None) -> None:
@@ -435,6 +460,15 @@ def mandant_loeschen(mandant_ref: str) -> dict:
         zahlen = {}
         for tabelle in mandanten_tabellen_zum_loeschen():
             zahlen[tabelle] = c.execute("DELETE FROM %s WHERE mandant_ref=?" % tabelle, (mandant_ref,)).rowcount
+        # Vorgänge: Was nie versendet wurde, geht ganz. Was gezählt wurde, bleibt als Zähleintrag ohne Inhalt (ID, Zeitpunkte, Monat, Status, Organisation) bis zur Frist.
+        if ZAEHLEINTRAG_BLEIBT:
+            zahlen["vorgang"] = c.execute("DELETE FROM vorgang WHERE mandant_ref=? AND gezaehlt_am IS NULL", (mandant_ref,)).rowcount
+            zahlen["zaehleintraege"] = c.execute("UPDATE vorgang SET status='geloescht', geloescht_am=COALESCE(geloescht_am, ?), geloescht_grund=COALESCE(geloescht_grund, 'vertragsende'), "
+                                                 "email_enc=NULL, code_hmac=NULL, code_kid=NULL, abgleich=NULL, bestaetigt_von=NULL, email_herkunft=NULL, datum_herkunft=NULL, "
+                                                 "personen_herkunft=NULL, versand_fehler=NULL WHERE mandant_ref=? AND gezaehlt_am IS NOT NULL", (jetzt(), mandant_ref)).rowcount
+        else:
+            zahlen["vorgang"] = c.execute("DELETE FROM vorgang WHERE mandant_ref=?", (mandant_ref,)).rowcount
+            zahlen["zaehleintraege"] = 0
     zahlen["dateien"] = dateien
     with verbindung() as c:
         loeschprotokoll_schreiben(c, "vertragsende", mandant_ref, None, {k: v for k, v in zahlen.items() if k != "loeschprotokoll"})

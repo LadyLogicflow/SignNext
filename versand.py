@@ -11,6 +11,7 @@ import mail_zugang
 import mailer
 import pruefung
 import schluessel
+import tarif
 
 LINK_TAGE = config.LINK_TAGE
 BETREFF = "Ihre Beratungsstelle: Dokument zur Unterschrift bereit"
@@ -45,12 +46,14 @@ def _versand_eintragen(mandant_ref: str, vorgang_id: int, ergebnis: str, code: s
                   (int(vorgang_id), mandant_ref, db.jetzt(), ergebnis, code, message_id))
 
 
-def _zurueck(mandant_ref: str, vorgang_id: int, token_hash: str, code: str, ziel: str = "bereit") -> None:
-    """Eindeutiger Fehler vor der Zustellung: Link verwerfen, Zustand zurück auf ``ziel`` (neuer Versuch gefahrlos)."""
+def _zurueck(mandant_ref: str, vorgang_id: int, token_hash: str, code: str, ziel: str = "bereit", zaehlung_zurueck: bool = False) -> None:
+    """Eindeutiger Fehler vor der Zustellung: Link verwerfen, Zustand zurück auf ``ziel`` (neuer Versuch gefahrlos). War es der erste Versand dieses Vorgangs,
+    wird auch die Zählung zurückgenommen (``zaehlung_zurueck``); bei unklarem Versand bleibt sie."""
     with db.verbindung() as c:
         c.execute("DELETE FROM link WHERE token_hash=? AND mandant_ref=?", (token_hash, mandant_ref))
     _versand_eintragen(mandant_ref, vorgang_id, "fehlgeschlagen", code)
-    db.vorgang_status_wechseln(mandant_ref, vorgang_id, "versenden", ziel, versand_fehler=code)
+    zusatz = {"gezaehlt_am": None, "zaehlmonat": None} if zaehlung_zurueck else {}
+    db.vorgang_status_wechseln(mandant_ref, vorgang_id, "versenden", ziel, versand_fehler=code, **zusatz)
 
 
 def versenden(mandant_ref: str, vorgang_id: int, nutzer: str) -> dict:
@@ -105,7 +108,11 @@ def _senden(mandant_ref: str, vorgang_id: int, nutzer: str, neu: bool) -> dict:
         raise Fehler("angaben_fehlen", 409, fehlt)
     if config.versand_modus() == "testadressen" and e["email"] not in config.versand_testadressen():
         raise Fehler("empfaenger_nicht_freigegeben")
-    if not db.vorgang_status_wechseln(mandant_ref, vorgang_id, ausgang, "versenden", versenden_seit=db.jetzt()):
+    erst = v["gezaehlt_am"] is None                                      # erster Versand dieses Vorgangs: wird gezählt, ggf. am Kontingent gesperrt
+    anspruch = tarif.beanspruchen(mandant_ref, vorgang_id, ausgang)
+    if anspruch == "kontingent":
+        raise Fehler("kontingent_erreicht", 409)
+    if anspruch != "ok":
         raise Fehler("versand_laeuft_oder_unklar")
     token, token_hash = schluessel.neues_token()
     jetzt = datetime.now(timezone.utc)
@@ -117,10 +124,10 @@ def _senden(mandant_ref: str, vorgang_id: int, nutzer: str, neu: bool) -> dict:
     try:
         zugang = mail_zugang.fuer_dienst(mandant_ref, "versand", nutzer)
     except schluessel.Entschluesselung:
-        _zurueck(mandant_ref, vorgang_id, token_hash, "mail_zugang_nicht_lesbar", ausgang)
+        _zurueck(mandant_ref, vorgang_id, token_hash, "mail_zugang_nicht_lesbar", ausgang, erst)
         raise Fehler("mail_zugang_nicht_lesbar", 503)
     except Exception:
-        _zurueck(mandant_ref, vorgang_id, token_hash, "intern", ausgang)
+        _zurueck(mandant_ref, vorgang_id, token_hash, "intern", ausgang, erst)
         raise
     # Der Link steht nach dem # (Fragment): Der Browser schickt ihn nie an den Server, er landet in keinem Zugriffsprotokoll von SignNext oder des Proxys.
     text = TEXT.format(link="%s/u#%s" % (basis, token))
@@ -132,7 +139,7 @@ def _senden(mandant_ref: str, vorgang_id: int, nutzer: str, neu: bool) -> dict:
         message_id = mailer.senden(zugang, empfaenger, nachricht)
     except mailer.MailFehler as f:
         if f.definitiv:
-            _zurueck(mandant_ref, vorgang_id, token_hash, f.code, ausgang)
+            _zurueck(mandant_ref, vorgang_id, token_hash, f.code, ausgang, erst)
             raise Fehler("mail_" + f.code, FEHLER_STATUS.get(f.code, 502))
         _versand_eintragen(mandant_ref, vorgang_id, "unklar", "unklar")
         db.vorgang_status_wechseln(mandant_ref, vorgang_id, "versenden", "versand_unklar", versand_fehler="unklar")

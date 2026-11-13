@@ -3,13 +3,19 @@
   schluesselwechsel              Daten auf den aktuellen Hauptschlüssel umschlüsseln (siehe schluesselwechsel.py)
   jobs-einmal                    einen Durchlauf der Hintergrund-Jobs
   demo [mandant]                 NUR Testinstanz (SIGNNEXT_DEMO=1): Demo-Vorgang aus erfundenen PDFs, gibt Mitglieds-Link und Geburtsdatum aus (keine Mail)
-  demo-download <nr> [mandant]   NUR Testinstanz: Download-Link für einen abgeschlossenen Demo-Vorgang"""
+  demo-download <nr> [mandant]   NUR Testinstanz: Download-Link für einen abgeschlossenen Demo-Vorgang
+  tarif-liste                    Tarife (Limit je Monat, Preis in Cent), Zuordnungen, Pilot-Standard, Sperrmodus
+  tarif-preis <basis|plus> <Cent>            Preis des Tarifs (nur ein Wert; SignNext rechnet nichts ab). Mit Preis > 0 gilt die Sperre am Limit (SIGNNEXT_SPERRE=auto)
+  tarif-limit <basis|plus> <Zahl|unbegrenzt> Limit je Kalendermonat
+  tarif-setzen <Mandant> <basis|plus>        Tarif einer Beratungsstelle (wirkt sofort)
+  zaehlung [Mandant] [JJJJ-MM]               Zahlen je Beratungsstelle und Monat für die manuelle Abrechnung (nur Zahlen)"""
 import sys
 
 import config
 import db
 
-HILFE = "Aufruf: python manage.py schluesselwechsel | jobs-einmal | demo [mandant] | demo-download <vorgang> [mandant]"
+HILFE = ("Aufruf: python manage.py schluesselwechsel | jobs-einmal | demo [mandant] | demo-download <vorgang> [mandant] | tarif-liste | tarif-preis <tarif> <cent> | "
+         "tarif-limit <tarif> <zahl|unbegrenzt> | tarif-setzen <mandant> <tarif> | zaehlung [mandant] [JJJJ-MM]")
 
 
 def _demo(argv: list) -> int:
@@ -35,7 +41,52 @@ def _demo(argv: list) -> int:
         return 2
 
 
+def _tarif(argv: list) -> int:
+    import tarif
+    db.init(str(config.daten_verzeichnis() / "signnext.db"))
+    try:
+        kommando = argv[1]
+        if kommando == "tarif-liste" and len(argv) == 2:
+            e = tarif.liste()[0]
+            for t in e["tarife"]:
+                print("Tarif %-6s Limit je Monat: %-10s Preis: %d Cent" % (t["name"], "unbegrenzt" if t["limit_monat"] is None else t["limit_monat"], t["preis_cent"]))
+            print("Zuordnungen: %s" % (", ".join("%s=%s" % (z["mandant_ref"], z["tarif"]) for z in e["zuordnung"]) or "keine"))
+            print("Standard Tarif plus für: %s" % (", ".join(e["plus_referenzen"]) or "niemanden"))
+            print("Sperrmodus (SIGNNEXT_SPERRE): %s" % e["sperre"])
+        elif kommando == "tarif-preis" and len(argv) == 4:
+            tarif.preis_setzen(argv[2], int(argv[3]))
+            print("Preis von %s: %d Cent" % (argv[2], int(argv[3])))
+        elif kommando == "tarif-limit" and len(argv) == 4:
+            limit = None if argv[3] == "unbegrenzt" else int(argv[3])
+            tarif.limit_setzen(argv[2], limit)
+            print("Limit von %s: %s" % (argv[2], "unbegrenzt" if limit is None else limit))
+        elif kommando == "tarif-setzen" and len(argv) == 4:
+            tarif.zuordnen(argv[2], argv[3])
+            print("Beratungsstelle %s: Tarif %s" % (argv[2], argv[3]))
+        elif kommando == "zaehlung" and len(argv) in (2, 3, 4):
+            monat = None
+            rest = argv[2:]
+            if rest and len(rest[-1]) == 7 and rest[-1][4] == "-":
+                monat = rest[-1]
+                rest = rest[:-1]
+            mandant = rest[0] if rest else None
+            zeilen = tarif.zaehlung(mandant, monat)
+            for z in zeilen:
+                print("%s  %-12s %4d Vorgänge  Tarif %s" % (z["monat"], z["mandant_ref"], z["anzahl"], z["tarif"]))
+            if not zeilen:
+                print("Keine Zählung für diese Auswahl.")
+        else:
+            print(HILFE)
+            return 2
+        return 0
+    except ValueError:
+        print("Abbruch: Eingabe ungültig")
+        return 1
+
+
 def main(argv: list) -> int:
+    if len(argv) >= 2 and argv[1] in ("tarif-liste", "tarif-preis", "tarif-limit", "tarif-setzen", "zaehlung"):
+        return _tarif(argv)
     if len(argv) >= 2 and argv[1] in ("demo", "demo-download") and (len(argv) in (2, 3) if argv[1] == "demo" else len(argv) in (3, 4)):
         return _demo(argv)
     if len(argv) == 2 and argv[1] == "jobs-einmal":
