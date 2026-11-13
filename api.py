@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, g, jsonify, request
 
+import config
 import db
 import mail_zugang
 import pdf_eingang
@@ -195,7 +196,7 @@ def vorgang_dokument(vorgang_id):
     if db.vorgang_lesen(mandant, vorgang_id) is None:
         return jsonify({"error": "nicht_gefunden"}), 404
     daten = None
-    for rolle in ("M", "B", "A"):
+    for rolle in ("M", "B", "A", "S"):
         daten = db.dokument_bytes(mandant, vorgang_id, rolle)
         if daten is not None:
             break
@@ -286,24 +287,56 @@ def vorgang_neuer_link(vorgang_id):
 @anmeldung_pflicht()
 def einstellungen_lesen():
     e = db.stelle_einstellung_lesen(g.nutzer["mandant_ref"])
-    return jsonify(dict(e, gesetzt=True) if e else {"gesetzt": False})
+    if not e:
+        return jsonify({"gesetzt": False})
+    e["aufbewahrung_tage"] = e["aufbewahrung_tage"] or config.aufbewahrung_standard()
+    e["mitglied_download_link"] = bool(e["mitglied_download_link"])
+    return jsonify(dict(e, gesetzt=True))
 
 
 @bp.put("/einstellungen")
 @anmeldung_pflicht("admin")
 def einstellungen_setzen():
     d = request.get_json(silent=True)
-    if not isinstance(d, dict) or set(d) != {"verantwortlicher", "datenschutz_link"}:
+    if not isinstance(d, dict) or not {"verantwortlicher", "datenschutz_link"} <= set(d) or set(d) - {"verantwortlicher", "datenschutz_link", "aufbewahrung_tage", "mitglied_download_link"}:
         return jsonify({"error": "eingabe_ungueltig", "meldung": MELDUNGEN["eingabe_ungueltig"]}), 422
     v, link = d["verantwortlicher"], d["datenschutz_link"]
     if not isinstance(v, str) or not 5 <= len(v.strip()) <= 500 or re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", v):
         return jsonify({"error": "eingabe_ungueltig", "meldung": "Bitte Name, Anschrift und Kontakt der Beratungsstelle angeben.", "feld": "verantwortlicher"}), 422
     if not isinstance(link, str) or not re.fullmatch(r"https://[^\s<>\"']{4,300}", link.strip()):
         return jsonify({"error": "eingabe_ungueltig", "meldung": "Bitte einen Link zur Datenschutzerklärung (https) angeben.", "feld": "datenschutz_link"}), 422
+    tage = d.get("aufbewahrung_tage")
+    if tage is not None and (isinstance(tage, bool) or not isinstance(tage, int) or not config.AUFBEWAHRUNG_MIN_TAGE <= tage <= config.AUFBEWAHRUNG_MAX_TAGE):
+        return jsonify({"error": "eingabe_ungueltig", "meldung": "Die Aufbewahrungsfrist muss zwischen %d und %d Tagen liegen." % (config.AUFBEWAHRUNG_MIN_TAGE, config.AUFBEWAHRUNG_MAX_TAGE),
+                        "feld": "aufbewahrung_tage"}), 422
+    dl = d.get("mitglied_download_link")
+    if dl is not None and not isinstance(dl, bool):
+        return jsonify({"error": "eingabe_ungueltig", "meldung": MELDUNGEN["eingabe_ungueltig"], "feld": "mitglied_download_link"}), 422
+    # Die Frist gilt für Vorgänge, die NACH der Änderung abgeschlossen werden; bereits abgeschlossene behalten ihre Frist (keine rückwirkende Verkürzung).
     with db.verbindung() as c:
-        c.execute("INSERT INTO stelle_einstellung(mandant_ref, verantwortlicher, datenschutz_link, geaendert_am, geaendert_von) VALUES (?,?,?,?,?) "
+        c.execute("INSERT INTO stelle_einstellung(mandant_ref, verantwortlicher, datenschutz_link, geaendert_am, geaendert_von, aufbewahrung_tage, mitglied_download_link) VALUES (?,?,?,?,?,?,?) "
                   "ON CONFLICT(mandant_ref) DO UPDATE SET verantwortlicher=excluded.verantwortlicher, datenschutz_link=excluded.datenschutz_link, "
-                  "geaendert_am=excluded.geaendert_am, geaendert_von=excluded.geaendert_von",
-                  (g.nutzer["mandant_ref"], v.strip(), link.strip(), db.jetzt(), g.nutzer["email"]))
+                  "geaendert_am=excluded.geaendert_am, geaendert_von=excluded.geaendert_von, "
+                  "aufbewahrung_tage=COALESCE(?, stelle_einstellung.aufbewahrung_tage), mitglied_download_link=COALESCE(?, stelle_einstellung.mitglied_download_link)",
+                  (g.nutzer["mandant_ref"], v.strip(), link.strip(), db.jetzt(), g.nutzer["email"], tage, 1 if dl is None else int(dl),
+                   tage, None if dl is None else int(dl)))
     audit("einstellungen_gesetzt", "")
     return jsonify({"gesetzt": True})
+
+
+@bp.put("/vorgaenge/<int:vorgang_id>/erinnerungen")
+@anmeldung_pflicht()
+def erinnerungen_schalten(vorgang_id):
+    """Erinnerungen an das Mitglied für diesen Vorgang aus- oder einschalten. Body: {"an": true|false}."""
+    d = request.get_json(silent=True)
+    if not isinstance(d, dict) or set(d) != {"an"} or not isinstance(d["an"], bool):
+        return jsonify({"error": "eingabe_ungueltig", "meldung": MELDUNGEN["eingabe_ungueltig"]}), 422
+    mandant = g.nutzer["mandant_ref"]
+    v = db.vorgang_lesen(mandant, vorgang_id)
+    if v is None:
+        return jsonify({"error": "nicht_gefunden"}), 404
+    if v["status"] not in ("versendet", "versand_unklar"):
+        return jsonify({"error": "zustand_passt_nicht"}), 409
+    db.vorgang_aendern(mandant, vorgang_id, erinnerungen_aus=0 if d["an"] else 1)
+    audit("erinnerungen_an" if d["an"] else "erinnerungen_aus", "id=%d" % vorgang_id)
+    return jsonify({"vorgang_id": vorgang_id, "erinnerungen_aus": not d["an"]})

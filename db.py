@@ -8,7 +8,7 @@ import shutil
 import sqlite3
 import threading
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import config
@@ -34,7 +34,22 @@ CREATE TABLE IF NOT EXISTS vorgang (
     datum_herkunft TEXT,
     personen_herkunft TEXT,
     versendet_am TEXT,
-    versand_fehler TEXT
+    versand_fehler TEXT,
+    versenden_seit TEXT,
+    unterschrieben_am TEXT,
+    abschluss_seit TEXT,
+    abschluss_versuche INTEGER NOT NULL DEFAULT 0,
+    abgeschlossen_am TEXT,
+    aufbewahrung_tage INTEGER,
+    aufbewahrung_bis TEXT,
+    erinnerungen_aus INTEGER NOT NULL DEFAULT 0,
+    link_sperre_gemeldet INTEGER,
+    bst_info_am TEXT,
+    mitglied_mail_am TEXT,
+    mitglied_mail_versuche INTEGER NOT NULL DEFAULT 0,
+    vorwarnung_am TEXT,
+    geloescht_am TEXT,
+    geloescht_grund TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_vorgang_mandant ON vorgang(mandant_ref, id);
 -- Rolle: A = Protokoll, B = Anschreiben, M = zusammengeführtes PDF. Keine Personendaten, nur Hash, Größe, Seiten, Stellen (JSON) und der Dateiname.
@@ -76,7 +91,8 @@ CREATE TABLE IF NOT EXISTS link (
     laeuft_ab TEXT NOT NULL,
     verbraucht_am TEXT,
     fehlversuche INTEGER NOT NULL DEFAULT 0,
-    gesperrt INTEGER NOT NULL DEFAULT 0
+    gesperrt INTEGER NOT NULL DEFAULT 0,
+    token_enc TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_link_vorgang ON link(mandant_ref, vorgang_id);
 -- Eine Zeile je Versandversuch (Limit, Nachweis). ergebnis: gesendet | fehlgeschlagen | unklar. Keine Adressen, keine Inhalte.
@@ -96,7 +112,9 @@ CREATE TABLE IF NOT EXISTS stelle_einstellung (
     verantwortlicher TEXT NOT NULL,
     datenschutz_link TEXT NOT NULL,
     geaendert_am TEXT NOT NULL,
-    geaendert_von TEXT NOT NULL
+    geaendert_von TEXT NOT NULL,
+    aufbewahrung_tage INTEGER,
+    mitglied_download_link INTEGER NOT NULL DEFAULT 1
 );
 -- Sitzung des Mitglieds nach erfolgreicher Code-Prüfung: nur der Hash des Cookie-Werts wird gespeichert. Schritte werden serverseitig erzwungen.
 CREATE TABLE IF NOT EXISTS sitzung (
@@ -153,6 +171,56 @@ CREATE TABLE IF NOT EXISTS zugang_ip (
     zeit TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_zugang_ip ON zugang_ip(ip_hmac, zeit);
+-- Erinnerungen an das Mitglied: eine Zeile je Erinnerung (48/72/96/120/144/156 Stunden nach dem Versand). Der Anspruch (versuche, letzter_versuch) verhindert Doppelversand.
+-- ergebnis: NULL (offen) | gesendet | fehlgeschlagen | unklar | uebersprungen | entfallen
+CREATE TABLE IF NOT EXISTS erinnerung (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    vorgang_id INTEGER NOT NULL REFERENCES vorgang(id),
+    mandant_ref TEXT NOT NULL,
+    nr INTEGER NOT NULL,
+    faellig_am TEXT NOT NULL,
+    versuche INTEGER NOT NULL DEFAULT 0,
+    letzter_versuch TEXT,
+    gesendet_am TEXT,
+    ergebnis TEXT,
+    UNIQUE(vorgang_id, nr)
+);
+CREATE INDEX IF NOT EXISTS idx_erinnerung_faellig ON erinnerung(mandant_ref, faellig_am);
+-- Download-Link für das Mitglied: nur der SHA-256 des Tokens, 7 Tage, höchstens 3 Abrufe, Abrufe werden protokolliert (Zeit, gekürzte IP, Zähler).
+CREATE TABLE IF NOT EXISTS download_link (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    vorgang_id INTEGER NOT NULL REFERENCES vorgang(id),
+    mandant_ref TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    erstellt TEXT NOT NULL,
+    laeuft_ab TEXT NOT NULL,
+    abrufe INTEGER NOT NULL DEFAULT 0,
+    max_abrufe INTEGER NOT NULL DEFAULT 3,
+    gesperrt INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_download_vorgang ON download_link(mandant_ref, vorgang_id);
+CREATE TABLE IF NOT EXISTS download_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    link_id INTEGER NOT NULL,
+    vorgang_id INTEGER NOT NULL,
+    mandant_ref TEXT NOT NULL,
+    zeit TEXT NOT NULL,
+    ip TEXT NOT NULL DEFAULT '',
+    zaehler INTEGER NOT NULL,
+    bst_benachrichtigt_am TEXT
+);
+-- Löschprotokoll: NUR Zahlen. Keine Namen, keine Dateinamen, keine Mitgliedsdaten. mandant_ref und vorgang_id nur zur Zuordnung. Bleibt auch nach Vertragsende
+-- (Ausnahme von mandant_loeschen, siehe AUSNAHMEN) und wird nach ``loeschen_nach`` (Standard 3 Jahre) selbst gelöscht.
+CREATE TABLE IF NOT EXISTS loeschprotokoll (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    zeit TEXT NOT NULL,
+    art TEXT NOT NULL,
+    mandant_ref TEXT NOT NULL,
+    vorgang_id INTEGER,
+    zahlen TEXT NOT NULL,
+    loeschen_nach TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_loeschprotokoll_frist ON loeschprotokoll(loeschen_nach);
 -- Nutzer = E-Mail der Portal-Sitzung, ip gekürzt (IPv4 /24, IPv6 /48). Keine Dokumentinhalte.
 CREATE TABLE IF NOT EXISTS audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -181,9 +249,16 @@ def init(pfad: str) -> None:
         vorhanden = {z["name"] for z in c.execute("PRAGMA table_info(vorgang)")}
         for spalte, typ in (("personen", "INTEGER"), ("abgleich", "TEXT"), ("bestaetigt_von", "TEXT"), ("bestaetigt_am", "TEXT"), ("email_enc", "TEXT"),
                             ("email_herkunft", "TEXT"), ("code_hmac", "TEXT"), ("code_kid", "TEXT"), ("datum_herkunft", "TEXT"), ("personen_herkunft", "TEXT"),
-                            ("versendet_am", "TEXT"), ("versand_fehler", "TEXT")):
+                            ("versendet_am", "TEXT"), ("versand_fehler", "TEXT"), ("versenden_seit", "TEXT"), ("unterschrieben_am", "TEXT"), ("abschluss_seit", "TEXT"),
+                            ("abschluss_versuche", "INTEGER NOT NULL DEFAULT 0"), ("abgeschlossen_am", "TEXT"), ("aufbewahrung_tage", "INTEGER"), ("aufbewahrung_bis", "TEXT"),
+                            ("erinnerungen_aus", "INTEGER NOT NULL DEFAULT 0"), ("link_sperre_gemeldet", "INTEGER"), ("bst_info_am", "TEXT"), ("mitglied_mail_am", "TEXT"),
+                            ("mitglied_mail_versuche", "INTEGER NOT NULL DEFAULT 0"), ("vorwarnung_am", "TEXT"), ("geloescht_am", "TEXT"), ("geloescht_grund", "TEXT")):
             if spalte not in vorhanden:
                 c.execute("ALTER TABLE vorgang ADD COLUMN %s %s" % (spalte, typ))
+        for tabelle, spalte, typ in (("link", "token_enc", "TEXT"), ("stelle_einstellung", "aufbewahrung_tage", "INTEGER"),
+                                     ("stelle_einstellung", "mitglied_download_link", "INTEGER NOT NULL DEFAULT 1")):
+            if spalte not in {z["name"] for z in c.execute("PRAGMA table_info(%s)" % tabelle)}:
+                c.execute("ALTER TABLE %s ADD COLUMN %s %s" % (tabelle, spalte, typ))
 
 
 @contextmanager
@@ -211,14 +286,21 @@ def audit(mandant_ref: str | None, nutzer: str, aktion: str, details: str = "", 
                   (jetzt(), mandant_ref, nutzer, aktion, details, ip))
 
 
+def audit_in(c, mandant_ref: str | None, nutzer: str, aktion: str, details: str = "", ip: str = "") -> None:
+    """Wie ``audit``, aber in der Transaktion des Aufrufers."""
+    c.execute("INSERT INTO audit_log(zeit, mandant_ref, nutzer, aktion, details, ip) VALUES (?,?,?,?,?,?)", (jetzt(), mandant_ref, nutzer, aktion, details, ip))
+
+
 # --- Vorgänge und Dokumente: immer mit Mandantenfilter ---
 
 REFERENZ = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 VORGANG_FELDER = ("status", "personen", "abgleich", "bestaetigt_von", "bestaetigt_am", "email_enc", "email_herkunft", "code_hmac", "code_kid", "datum_herkunft",
-                  "personen_herkunft", "versendet_am", "versand_fehler")
+                  "personen_herkunft", "versendet_am", "versand_fehler", "versenden_seit", "unterschrieben_am", "abschluss_seit", "abschluss_versuche", "abgeschlossen_am",
+                  "aufbewahrung_tage", "aufbewahrung_bis", "erinnerungen_aus", "link_sperre_gemeldet", "bst_info_am", "mitglied_mail_am", "mitglied_mail_versuche",
+                  "vorwarnung_am", "geloescht_am", "geloescht_grund")
 # Felder, die nach außen gehen dürfen (nie email_enc, code_hmac, code_kid)
 VORGANG_OEFFENTLICH = ("id", "status", "erstellt", "personen", "abgleich", "bestaetigt_von", "bestaetigt_am", "email_herkunft", "datum_herkunft", "personen_herkunft",
-                       "versendet_am", "versand_fehler")
+                       "versendet_am", "versand_fehler", "unterschrieben_am", "abgeschlossen_am", "aufbewahrung_bis", "erinnerungen_aus", "geloescht_am", "geloescht_grund")
 
 
 def dokumente_verzeichnis(mandant_ref: str) -> Path:
@@ -314,22 +396,62 @@ def dokument_bytes(mandant_ref: str, vorgang_id: int, rolle: str) -> bytes | Non
     return pfad.read_bytes() if pfad.is_file() else None
 
 
-MANDANTENTABELLEN = ("sitzung", "unterschrift", "zugriff_log", "dokument", "link", "versand", "mail_zugang", "stelle_einstellung", "vorgang", "audit_log")
+MANDANTENTABELLEN = ("download_log", "download_link", "erinnerung", "sitzung", "unterschrift", "zugriff_log", "dokument", "link", "versand", "mail_zugang",
+                     "stelle_einstellung", "vorgang", "audit_log")
+# Tabellen mit mandant_ref, die bei der Löschung einer Beratungsstelle BLEIBEN: das Löschprotokoll (nur Zahlen, Nachweis der Löschung). Wer das ändern will (Irony prüft),
+# setzt LOESCHPROTOKOLL_BLEIBT auf False: dann wird es wie alle anderen Tabellen mitgelöscht, ohne weitere Änderung.
+LOESCHPROTOKOLL_BLEIBT = True
+AUSNAHMEN = ("loeschprotokoll",)
+LOESCHPROTOKOLL_JAHRE = 3
+
+
+def mandanten_tabellen_zum_loeschen() -> tuple:
+    return MANDANTENTABELLEN + (() if LOESCHPROTOKOLL_BLEIBT else AUSNAHMEN)
+
+
+def loeschprotokoll_schreiben(c, art: str, mandant_ref: str, vorgang_id: int | None, zahlen: dict, jetzt_dt: datetime | None = None) -> None:
+    """Nur Zahlen (ganze Zahlen) und Art. Verweigert alles andere, damit keine Namen oder Dateinamen hineinrutschen."""
+    if not all(isinstance(k, str) and re.fullmatch(r"[a-z_]{1,30}", k) and isinstance(v, int) and not isinstance(v, bool) for k, v in zahlen.items()):
+        raise ValueError("Löschprotokoll nimmt nur Zählerwerte")
+    zeit = jetzt_dt or datetime.now(timezone.utc)
+    try:
+        frist = zeit.replace(year=zeit.year + LOESCHPROTOKOLL_JAHRE)
+    except ValueError:                                                      # 29. Februar
+        frist = zeit.replace(year=zeit.year + LOESCHPROTOKOLL_JAHRE, day=28)
+    c.execute("INSERT INTO loeschprotokoll(zeit, art, mandant_ref, vorgang_id, zahlen, loeschen_nach) VALUES (?,?,?,?,?,?)",
+              (zeit.strftime("%Y-%m-%dT%H:%M:%SZ"), art, mandant_ref, vorgang_id, json.dumps(zahlen, sort_keys=True), frist.strftime("%Y-%m-%dT%H:%M:%SZ")))
 
 
 def mandant_loeschen(mandant_ref: str) -> dict:
-    """Entfernt alle Daten einer Beratungsstelle (Vertragsende, Organisationslöschung): Dateien, dann Tabellenzeilen. Liefert die Zahlen für das Löschprotokoll.
-    Spätere Bausteine ergänzen hier ihre Tabellen; der Test prüft, dass keine Tabelle mit mandant_ref übrig bleibt."""
+    """Entfernt alle Daten einer Beratungsstelle (Vertragsende, Organisationslöschung): Dateien, dann Tabellenzeilen. Liefert die Zahlen für das Löschprotokoll
+    und schreibt einen Eintrag ins Löschprotokoll (nur Zahlen). Spätere Bausteine ergänzen hier ihre Tabellen; der Test prüft, dass keine Tabelle mit mandant_ref übrig bleibt."""
     verz = dokumente_verzeichnis(mandant_ref)
     dateien = sum(1 for p in verz.rglob("*") if p.is_file()) if verz.is_dir() else 0
     if verz.is_dir():
         shutil.rmtree(verz)
     with verbindung() as c:
         zahlen = {}
-        for tabelle in MANDANTENTABELLEN:
+        for tabelle in mandanten_tabellen_zum_loeschen():
             zahlen[tabelle] = c.execute("DELETE FROM %s WHERE mandant_ref=?" % tabelle, (mandant_ref,)).rowcount
     zahlen["dateien"] = dateien
+    with verbindung() as c:
+        loeschprotokoll_schreiben(c, "vertragsende", mandant_ref, None, {k: v for k, v in zahlen.items() if k != "loeschprotokoll"})
     return zahlen
+
+
+def erinnerungen_planen(c, mandant_ref: str, vorgang_id: int, ab_dt) -> None:
+    """Legt die sechs Erinnerungen (48/72/96/120/144/156 h nach ``ab_dt``) neu an. Alte Zeilen werden verworfen (neuer Link = neue Zählung)."""
+    c.execute("DELETE FROM erinnerung WHERE vorgang_id=? AND mandant_ref=?", (int(vorgang_id), mandant_ref))
+    for nr, stunden in enumerate(config.ERINNERUNG_STUNDEN, 1):
+        faellig = (ab_dt + timedelta(hours=stunden)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        c.execute("INSERT INTO erinnerung(vorgang_id, mandant_ref, nr, faellig_am, versuche) VALUES (?,?,?,?,0)", (int(vorgang_id), mandant_ref, nr, faellig))
+
+
+def token_entziehen(c, vorgang_id: int | None = None, link_id: int | None = None) -> int:
+    """Löscht das wiederherstellbare Token (token_enc) eines Links oder aller Links eines Vorgangs. Der Hash bleibt (für die Sperrprüfung). Liefert die Zahl der Zeilen."""
+    if link_id is not None:
+        return c.execute("UPDATE link SET token_enc=NULL WHERE id=? AND token_enc IS NOT NULL", (int(link_id),)).rowcount
+    return c.execute("UPDATE link SET token_enc=NULL WHERE vorgang_id=? AND token_enc IS NOT NULL", (int(vorgang_id),)).rowcount
 
 
 def link_status(mandant_ref: str, vorgang_id: int) -> str | None:
@@ -353,5 +475,5 @@ def jetzt_text() -> str:
 
 def stelle_einstellung_lesen(mandant_ref: str) -> dict | None:
     with verbindung() as c:
-        z = c.execute("SELECT verantwortlicher, datenschutz_link, geaendert_am FROM stelle_einstellung WHERE mandant_ref=?", (mandant_ref,)).fetchone()
+        z = c.execute("SELECT verantwortlicher, datenschutz_link, geaendert_am, aufbewahrung_tage, mitglied_download_link FROM stelle_einstellung WHERE mandant_ref=?", (mandant_ref,)).fetchone()
     return dict(z) if z else None

@@ -7,6 +7,8 @@ from flask import Flask, Request, jsonify
 import api
 import config
 import db
+import download
+import jobs
 import zugang
 
 
@@ -48,6 +50,7 @@ def create_app(db_pfad: str | None = None) -> Flask:
     db.init(db_pfad)
     app.register_blueprint(api.bp)
     app.register_blueprint(zugang.bp)
+    app.register_blueprint(download.bp)
 
     @app.errorhandler(413)
     def _zu_gross(_):
@@ -74,4 +77,6 @@ def create_app(db_pfad: str | None = None) -> Flask:
 
 def _wsgi():
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
-    return create_app()
+    app = create_app()
+    jobs.starten()                                   # Erinnerungen, Abschluss-Nachholung, Fristen (SIGNNEXT_JOBS=0 schaltet ab)
+    return app

@@ -12,7 +12,7 @@ import mailer
 import pruefung
 import schluessel
 
-LINK_TAGE = 7
+LINK_TAGE = config.LINK_TAGE
 BETREFF = "Ihre Beratungsstelle: Dokument zur Unterschrift bereit"
 TEXT = (
     "Guten Tag,\n\n"
@@ -105,14 +105,15 @@ def _senden(mandant_ref: str, vorgang_id: int, nutzer: str, neu: bool) -> dict:
         raise Fehler("angaben_fehlen", 409, fehlt)
     if config.versand_modus() == "testadressen" and e["email"] not in config.versand_testadressen():
         raise Fehler("empfaenger_nicht_freigegeben")
-    if not db.vorgang_status_wechseln(mandant_ref, vorgang_id, ausgang, "versenden"):
+    if not db.vorgang_status_wechseln(mandant_ref, vorgang_id, ausgang, "versenden", versenden_seit=db.jetzt()):
         raise Fehler("versand_laeuft_oder_unklar")
     token, token_hash = schluessel.neues_token()
     jetzt = datetime.now(timezone.utc)
     laeuft_ab = jetzt + timedelta(days=LINK_TAGE)
     with db.verbindung() as c:
-        c.execute("INSERT INTO link(vorgang_id, mandant_ref, token_hash, erstellt, laeuft_ab) VALUES (?,?,?,?,?)",
-                  (int(vorgang_id), mandant_ref, token_hash, _zeit(jetzt), _zeit(laeuft_ab)))
+        # token_enc: wiederherstellbares Token nur für die Erinnerungen; wird bei Unterschrift, Sperre, Ablauf und Storno sofort gelöscht (db.token_entziehen).
+        c.execute("INSERT INTO link(vorgang_id, mandant_ref, token_hash, erstellt, laeuft_ab, token_enc) VALUES (?,?,?,?,?,?)",
+                  (int(vorgang_id), mandant_ref, token_hash, _zeit(jetzt), _zeit(laeuft_ab), schluessel.verschluesseln(mandant_ref, "link-token", token)))
     try:
         zugang = mail_zugang.fuer_dienst(mandant_ref, "versand", nutzer)
     except schluessel.Entschluesselung:
@@ -146,11 +147,13 @@ def _senden(mandant_ref: str, vorgang_id: int, nutzer: str, neu: bool) -> dict:
     versendet_am = db.jetzt()
     if neu:
         with db.verbindung() as c:
-            c.execute("UPDATE link SET gesperrt=1 WHERE vorgang_id=? AND mandant_ref=? AND token_hash<>?", (int(vorgang_id), mandant_ref, token_hash))
-        db.vorgang_status_wechseln(mandant_ref, vorgang_id, "versenden", "versendet", versendet_am=versendet_am, versand_fehler=None)
+            c.execute("UPDATE link SET gesperrt=1, token_enc=NULL WHERE vorgang_id=? AND mandant_ref=? AND token_hash<>?", (int(vorgang_id), mandant_ref, token_hash))
+        db.vorgang_status_wechseln(mandant_ref, vorgang_id, "versenden", "versendet", versendet_am=versendet_am, versand_fehler=None, vorwarnung_am=None)
     else:
         db.vorgang_status_wechseln(
             mandant_ref, vorgang_id, "versenden", "versendet", versendet_am=versendet_am, versand_fehler=None,
             email_enc=schluessel.verschluesseln(mandant_ref, "mitglied-mail", e["email"]), email_herkunft=e["email_herkunft"],
             code_hmac=e["code_hmac"], code_kid=e["code_kid"], datum_herkunft=e["datum_herkunft"], personen=e["personen"], personen_herkunft=e["personen_herkunft"])
+    with db.verbindung() as c:
+        db.erinnerungen_planen(c, mandant_ref, vorgang_id, jetzt)
     return {"vorgang_id": int(vorgang_id), "status": "versendet", "versendet_am": versendet_am, "link_laeuft_ab": _zeit(laeuft_ab), "neuer_link": neu}

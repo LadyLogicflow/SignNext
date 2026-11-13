@@ -64,8 +64,14 @@ def uri(daten: bytes) -> str:
 
 
 class ZugangBasis(MailBasis):
+    ABSCHLUSS_AUS = True                      # Baustein 4 prüft nur den Zugang; der Abschluss (Einbetten) hat seine Tests in test_baustein5
+
     def setUp(self):
         super().setUp()
+        if self.ABSCHLUSS_AUS:
+            p = mock.patch("abschluss.ausfuehren", return_value=False)
+            p.start()
+            self.addCleanup(p.stop)
         p = mock.patch("seitenbild.rendern", side_effect=_rendern_gemerkt)
         p.start()
         self.addCleanup(p.stop)

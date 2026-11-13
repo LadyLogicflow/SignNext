@@ -6,8 +6,13 @@ import db
 
 
 def main(argv: list) -> int:
+    if len(argv) == 2 and argv[1] == "jobs-einmal":
+        import jobs
+        db.init(str(config.daten_verzeichnis() / "signnext.db"))
+        print(" ".join("%s=%s" % (k, v) for k, v in sorted(jobs.lauf().items())))
+        return 0
     if len(argv) != 2 or argv[1] != "schluesselwechsel":
-        print("Aufruf: python manage.py schluesselwechsel")
+        print("Aufruf: python manage.py schluesselwechsel | jobs-einmal")
         return 2
     import schluesselwechsel
     db.init(str(config.daten_verzeichnis() / "signnext.db"))

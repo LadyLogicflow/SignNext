@@ -76,3 +76,26 @@ def aufbewahrung_tage() -> int:
 def ip_speicherung() -> str:
     """'voll' (Standard, laut Anforderung: IP nur im Nachweisprotokoll) oder 'gekuerzt'. Steht so in der Datenschutzinformation."""
     return "gekuerzt" if os.environ.get("SIGNNEXT_IP_SPEICHERUNG", "") == "gekuerzt" else "voll"
+
+
+# --- Baustein 5: Fristen und Takte (alle Zeiten in Stunden/Tagen nach dem jeweiligen Ereignis) ---
+ERINNERUNG_STUNDEN = (48, 72, 96, 120, 144, 156)         # nach dem Versand des Links
+VORWARNUNG_STUNDEN = 24                                  # vor dem Ablauf des Links (Löschung nicht unterschriebener Vorgänge)
+LINK_TAGE = 7
+NICHT_VERSENDET_TAGE = 7                                 # hochgeladen, nie versendet: nach dieser Zeit gelöscht (Vorwarnung 24 Stunden vorher)
+AUFBEWAHRUNG_MIN_TAGE = 30
+AUFBEWAHRUNG_MAX_TAGE = 365
+VORWARNUNG_AUFBEWAHRUNG_TAGE = 14                        # Erinnerung an die Beratungsstelle vor der Löschung des unterschriebenen Dokuments
+STALE_MINUTEN = 10                                       # so lange darf ein Vorgang in 'versenden' oder 'abschluss_laeuft' stehen
+ABSCHLUSS_VERSUCHE_MAX = 5
+MITGLIED_MAIL_VERSUCHE_MAX = 3
+ERINNERUNG_VERSUCHE_MAX = 3
+ERINNERUNG_ABSTAND_MINUTEN = 5
+DOWNLOAD_TAGE = 7
+DOWNLOAD_MAX_ABRUFE = 3
+JOB_INTERVALL_SEKUNDEN = 60
+
+
+def aufbewahrung_standard() -> int:
+    """Voreinstellung, solange die Beratungsstelle keine eigene Frist gesetzt hat (SIGNNEXT_AUFBEWAHRUNG_TAGE, Standard 90)."""
+    return min(AUFBEWAHRUNG_MAX_TAGE, max(AUFBEWAHRUNG_MIN_TAGE, aufbewahrung_tage()))

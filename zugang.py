@@ -9,6 +9,7 @@ Alles Sicherheitsrelevante entscheidet der Server, nicht die Seite:
   je Person nacheinander. Seitenbilder gibt es nur innerhalb der Sitzung, nie mit Token in der Adresse, nie zwischengespeichert."""
 import hashlib
 import json
+import logging
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -16,6 +17,7 @@ from urllib.parse import urlsplit
 
 from flask import Blueprint, jsonify, request
 
+import abschluss
 import config
 import db
 import schluessel
@@ -155,6 +157,7 @@ def _pruefen_intern(token: str, code: str) -> dict:
         c.execute("UPDATE link SET fehlversuche=?, gesperrt=? WHERE id=?", (versuche, 1 if gesperrt else 0, link["id"]))
         _protokoll(c, link, "gesperrt" if gesperrt else "falsch")
         if gesperrt:
+            db.token_entziehen(c, link_id=link["id"])
             _audit(c, link["mandant_ref"], "link_gesperrt", "vorgang=%d" % link["vorgang_id"])
         return {"art": "falsch", "versuche": versuche, "gesperrt": gesperrt}
 
@@ -343,15 +346,26 @@ def unterschrift():
                   (s["vorgang_id"], s["mandant_ref"], person, png, hashlib.sha256(png).hexdigest(), s["texte_angezeigt_am"], jetzt, s["texte_kennung"], s["texte_hash"], ip,
                    geraet_kennung(request.headers.get("User-Agent", ""))))
         if person == s["personen"]:
-            c.execute("UPDATE vorgang SET status='unterschrieben' WHERE id=? AND mandant_ref=?", (s["vorgang_id"], s["mandant_ref"]))
+            c.execute("UPDATE vorgang SET status='unterschrieben', unterschrieben_am=? WHERE id=? AND mandant_ref=?", (jetzt, s["vorgang_id"], s["mandant_ref"]))
             c.execute("UPDATE link SET verbraucht_am=? WHERE id=?", (jetzt, s["link_id"]))
+            db.token_entziehen(c, vorgang_id=s["vorgang_id"])      # wiederherstellbares Token sofort löschen (nur der Hash bleibt)
             c.execute("DELETE FROM sitzung WHERE link_id=?", (s["link_id"],))
+            c.execute("DELETE FROM erinnerung WHERE vorgang_id=? AND mandant_ref=? AND gesendet_am IS NULL", (s["vorgang_id"], s["mandant_ref"]))
             _audit(c, s["mandant_ref"], "unterschrieben", "vorgang=%d" % s["vorgang_id"])
-            antwort, st = _json({"fertig": True})
-            antwort.delete_cookie(COOKIE, path="/api/v1/zugang")
-            return antwort, st
-        # nächste Person: Haken und Text müssen für sie erneut bestätigt werden
-        c.execute("UPDATE sitzung SET texte_angezeigt_am=NULL, texte_kennung=NULL, texte_hash=NULL WHERE id=?", (s["id"],))
+            letzte = True
+        else:
+            # nächste Person: Haken und Text müssen für sie erneut bestätigt werden
+            c.execute("UPDATE sitzung SET texte_angezeigt_am=NULL, texte_kennung=NULL, texte_hash=NULL WHERE id=?", (s["id"],))
+            letzte = False
+    if letzte:
+        # Nach dem Commit: Einbetten und Nachweisprotokoll. Scheitert das, bleibt der Vorgang 'unterschrieben' und der Hintergrund-Job holt es nach.
+        try:
+            abschluss.ausfuehren(s["mandant_ref"], s["vorgang_id"])
+        except Exception:
+            logging.getLogger("signnext").error("Abschluss nach Unterschrift fehlgeschlagen (Job holt nach): vorgang=%d", s["vorgang_id"])
+        antwort, st = _json({"fertig": True})
+        antwort.delete_cookie(COOKIE, path="/api/v1/zugang")
+        return antwort, st
     return _json({"fertig": False, "naechste_person": person + 1})
 
 

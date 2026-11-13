@@ -17,6 +17,7 @@ pillow==13.0.0
 pycparser==3.12
 pypdf==7.0.1
 pypdfium2==5.15.2
+reportlab==5.1.0
 requests==2.32.3
 urllib3==2.8.0
 Werkzeug==3.1.9
