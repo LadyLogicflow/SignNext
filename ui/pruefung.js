@@ -46,15 +46,43 @@ async function loadPruefung() {
         document.getElementById('pdf-viewer').src = `/api/v1/vorgaenge/${vorgangId}/dokument`;
 
         // Angaben anzeigen
-        const {name_a, geburtsdatum, email, personen} = pruefungData;
+        const {name, geburtsdatum, email, personen} = pruefungData;
 
-        document.getElementById('name-wert').textContent = name_a.wert || '(fehlt)';
-        setHerkunft('name-herkunft', name_a.herkunft);
+        document.getElementById('name-wert').textContent = name.wert || '(fehlt)';
+        setHerkunft('name-herkunft', name.herkunft);
 
-        if (geburtsdatum.wert) {
-            document.getElementById('geburtsdatum').value = geburtsdatum.wert;
+        const gebInput = document.getElementById('geburtsdatum');
+        if (geburtsdatum.gesetzt) {
+            gebInput.value = geburtsdatum.wert || '';
+            gebInput.readOnly = true;
+            gebInput.style.backgroundColor = '#f9fafb';
+            setHerkunft('geb-herkunft', 'gesetzt');
+        } else if (geburtsdatum.wert) {
+            gebInput.value = geburtsdatum.wert;
+            setHerkunft('geb-herkunft', geburtsdatum.herkunft);
+        } else {
+            setHerkunft('geb-herkunft', geburtsdatum.herkunft);
         }
-        setHerkunft('geb-herkunft', geburtsdatum.herkunft);
+
+        // Abgleich-Button wenn bestaetigung_noetig
+        if (geburtsdatum.bestaetigung_noetig) {
+            const gebGroup = gebInput.closest('.form-group');
+            const abgleichBtn = document.createElement('button');
+            abgleichBtn.type = 'button';
+            abgleichBtn.className = 'btn btn-secondary';
+            abgleichBtn.textContent = 'Abgleich bestätigen';
+            abgleichBtn.style.marginTop = '0.5rem';
+            abgleichBtn.addEventListener('click', async () => {
+                try {
+                    await api('POST', `/vorgaenge/${vorgangId}/abgleich-bestaetigen`, {bestaetigt: true});
+                    alert('Abgleich bestätigt');
+                    await loadPruefung();
+                } catch (err) {
+                    alert('Fehler: ' + err.message);
+                }
+            });
+            gebGroup.appendChild(abgleichBtn);
+        }
 
         if (email.wert) {
             document.getElementById('email').value = email.wert;
@@ -78,13 +106,16 @@ function setHerkunft(id, herkunft) {
         pdf: '(aus PDF)',
         manuell: '(manuell)',
         abweichend: '(abweichend)',
-        fehlt: '(fehlt)'
+        fehlt: '(fehlt)',
+        gesetzt: '(gesetzt)'
     };
     const el = document.getElementById(id);
     el.textContent = labels[herkunft] || '';
     el.className = 'herkunft';
     if (herkunft === 'fehlt' || herkunft === 'abweichend') {
         el.classList.add('warning-text');
+    } else if (herkunft === 'gesetzt') {
+        el.classList.add('success-text');
     }
 }
 
@@ -165,15 +196,20 @@ async function loadMailZugang() {
         const zugang = await api('GET', '/mail-zugang');
         const status = document.getElementById('mail-status');
 
-        if (zugang.geprueft) {
-            status.innerHTML = '<span class="success-text">✓ Mail-Zugang erfolgreich geprüft</span>';
-        } else if (zugang.server) {
-            status.innerHTML = '<span class="warning-text">⚠ Mail-Zugang eingerichtet, aber nicht geprüft</span>';
+        if (zugang.geprueft_am) {
+            status.textContent = `✓ Mail-Zugang erfolgreich geprüft (${zugang.host || 'unbekannt'})`;
+            status.className = 'success-text';
+        } else if (zugang.konfiguriert) {
+            status.textContent = `⚠ Mail-Zugang eingerichtet (${zugang.host || 'unbekannt'}), aber nicht geprüft`;
+            status.className = 'warning-text';
         } else {
-            status.innerHTML = '<span class="error-text">✗ Kein Mail-Zugang eingerichtet</span>';
+            status.textContent = '✗ Kein Mail-Zugang eingerichtet';
+            status.className = 'error-text';
         }
     } catch (err) {
-        document.getElementById('mail-status').innerHTML = '<span class="error-text">Fehler beim Laden</span>';
+        const status = document.getElementById('mail-status');
+        status.textContent = 'Fehler beim Laden';
+        status.className = 'error-text';
     }
 }
 
@@ -183,8 +219,9 @@ async function versenden() {
         return;
     }
 
-    if (!pruefungData.kann_versenden) {
-        showError('versand-error', 'Vorgang kann nicht versendet werden (fehlende Angaben oder Mail-Zugang)');
+    if (!pruefungData.versandbereit_pdf || pruefungData.fehlend.length > 0) {
+        const fehlt = pruefungData.fehlend.join(', ');
+        showError('versand-error', `Vorgang kann nicht versendet werden. Fehlend: ${fehlt}`);
         return;
     }
 
