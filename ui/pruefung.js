@@ -65,7 +65,7 @@ async function loadPruefung() {
         }
 
         // Abgleich-Button wenn bestaetigung_noetig
-        if (geburtsdatum.bestaetigung_noetig) {
+        if (pruefungData.status === 'bestaetigung_noetig') {
             const gebGroup = gebInput.closest('.form-group');
             const abgleichBtn = document.createElement('button');
             abgleichBtn.type = 'button';
