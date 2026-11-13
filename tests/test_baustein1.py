@@ -255,7 +255,7 @@ class TestMandantentrennung(Basis):
         self.als("tb", me(email="b@test.example", ref="2002"))
         self.c.get("/api/v1/vorgaenge/%d" % self.b1)
         zahlen = db.mandant_loeschen("1001")
-        self.assertEqual(zahlen, {"dokument": 0, "vorgang": 2, "audit_log": 1, "dateien": 0})
+        self.assertEqual(zahlen, {"dokument": 0, "link": 0, "versand": 0, "mail_zugang": 0, "vorgang": 2, "audit_log": 1, "dateien": 0})
         self.assertEqual(db.vorgaenge_liste("1001"), [])
         self.assertEqual(len(db.vorgaenge_liste("2002")), 1)
         self.assertEqual([z["mandant_ref"] for z in self.audit_zeilen()], ["2002"])

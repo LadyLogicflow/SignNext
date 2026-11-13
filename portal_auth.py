@@ -74,7 +74,33 @@ def auswerten(daten: dict) -> dict:
     ref = referenzen.pop()
     if ref is None or not REFERENZ.match(ref):
         return {"ok": False, "grund": "referenz_ungueltig", "email": email}
-    return {"ok": True, "nutzer": {"email": email, "rolle": rolle, "mandant_ref": ref}}
+    stellen = daten.get("stellen") if isinstance(daten.get("stellen"), list) else []
+    return {"ok": True, "nutzer": {"email": email, "rolle": rolle, "mandant_ref": ref, "stellen_anzahl": len(stellen), "stelle_rolle": _stelle_rolle(stellen, ref)}}
+
+
+def _stelle_rolle(stellen: list, ref: str):
+    """Rolle des Nutzers in der Beratungsstelle, die signnext mit dieser Referenz liefert (Feld ``stelle_rolle``, sobald SortNext es liefert); sonst None."""
+    for st in stellen:
+        if not isinstance(st, dict):
+            continue
+        for p in st.get("produkte") or []:
+            if isinstance(p, dict) and p.get("produkt") == PRODUKT and isinstance(p.get("externe_referenz"), str) and p["externe_referenz"].strip() == ref:
+                r = st.get("stelle_rolle")
+                return r if r in ("admin", "mitarbeiter") else None
+    return None
+
+
+def admin_pruefen(nutzer: dict) -> tuple[bool, str | None]:
+    """Darf dieser Nutzer in SEINER Beratungsstelle Admin-Dinge tun (z. B. Mail-Zugang ändern)? (erlaubt, Grund bei Ablehnung).
+    Variante 'aus' (Voreinstellung): Rolle des Nutzers aus SortNext; hat der Nutzer mehr als eine Beratungsstelle, wird abgelehnt (fail closed), weil die
+    Rolle dann nicht eindeutig einer Stelle zugeordnet werden kann. Variante 'an': nur die Rolle je Stelle zählt."""
+    if config.stelle_rolle_variante() == "an":
+        return (True, None) if nutzer.get("stelle_rolle") == "admin" else (False, "rolle_nicht_erlaubt")
+    if nutzer["rolle"] != "admin":
+        return False, "rolle_nicht_erlaubt"
+    if nutzer.get("stellen_anzahl", 0) > 1:
+        return False, "mehrere_beratungsstellen"
+    return True, None
 
 
 def ermitteln(token: str) -> tuple[str, dict | None]:
@@ -143,10 +169,12 @@ def anmeldung_pflicht(rolle: str | None = None):
             if not e["ok"]:
                 db.audit(None, e["email"], "zugriff_verweigert", e["grund"], kuerze_ip(client_ip()))
                 return jsonify({"error": "forbidden", "grund": e["grund"]}), 403
-            if rolle and e["nutzer"]["rolle"] != rolle:
-                g.nutzer = e["nutzer"]
-                audit("zugriff_verweigert", "rolle_" + rolle + "_noetig")
-                return jsonify({"error": "forbidden", "grund": "rolle_nicht_erlaubt"}), 403
+            if rolle:
+                ok, grund = admin_pruefen(e["nutzer"]) if rolle == "admin" else (e["nutzer"]["rolle"] == rolle, "rolle_nicht_erlaubt")
+                if not ok:
+                    g.nutzer = e["nutzer"]
+                    audit("zugriff_verweigert", "rolle_" + rolle + "_noetig:" + str(grund))
+                    return jsonify({"error": "forbidden", "grund": grund}), 403
             g.nutzer = e["nutzer"]
             return f(*a, **kw)
         return innen

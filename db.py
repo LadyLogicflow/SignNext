@@ -26,7 +26,15 @@ CREATE TABLE IF NOT EXISTS vorgang (
     personen INTEGER,
     abgleich TEXT,
     bestaetigt_von TEXT,
-    bestaetigt_am TEXT
+    bestaetigt_am TEXT,
+    email_enc TEXT,
+    email_herkunft TEXT,
+    code_hmac TEXT,
+    code_kid TEXT,
+    datum_herkunft TEXT,
+    personen_herkunft TEXT,
+    versendet_am TEXT,
+    versand_fehler TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_vorgang_mandant ON vorgang(mandant_ref, id);
 -- Rolle: A = Protokoll, B = Anschreiben, M = zusammengeführtes PDF. Keine Personendaten, nur Hash, Größe, Seiten, Stellen (JSON) und der Dateiname.
@@ -43,6 +51,45 @@ CREATE TABLE IF NOT EXISTS dokument (
     erstellt TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_dokument_vorgang ON dokument(mandant_ref, vorgang_id);
+-- Mail-Zugang der Beratungsstelle. Das Passwort steht nur verschlüsselt hier (AES-256-GCM, schluessel.py) und wird nie ausgegeben.
+CREATE TABLE IF NOT EXISTS mail_zugang (
+    mandant_ref TEXT PRIMARY KEY,
+    host TEXT NOT NULL,
+    port INTEGER NOT NULL,
+    benutzer TEXT NOT NULL,
+    passwort_enc TEXT NOT NULL,
+    absender_adresse TEXT NOT NULL,
+    absender_name TEXT NOT NULL DEFAULT '',
+    signatur TEXT NOT NULL DEFAULT '',
+    bcc_an_absender INTEGER NOT NULL DEFAULT 0,
+    geprueft_am TEXT,
+    geaendert_am TEXT NOT NULL,
+    geaendert_von TEXT NOT NULL
+);
+-- Zugangslink des Mitglieds: nur der SHA-256 des Tokens (256 Bit) wird gespeichert. Gültigkeit 7 Tage, einmalig; die Prüfung folgt mit Baustein 4.
+CREATE TABLE IF NOT EXISTS link (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    vorgang_id INTEGER NOT NULL REFERENCES vorgang(id),
+    mandant_ref TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    erstellt TEXT NOT NULL,
+    laeuft_ab TEXT NOT NULL,
+    verbraucht_am TEXT,
+    fehlversuche INTEGER NOT NULL DEFAULT 0,
+    gesperrt INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_link_vorgang ON link(mandant_ref, vorgang_id);
+-- Eine Zeile je Versandversuch (Limit, Nachweis). ergebnis: gesendet | fehlgeschlagen | unklar. Keine Adressen, keine Inhalte.
+CREATE TABLE IF NOT EXISTS versand (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    vorgang_id INTEGER NOT NULL REFERENCES vorgang(id),
+    mandant_ref TEXT NOT NULL,
+    zeit TEXT NOT NULL,
+    ergebnis TEXT NOT NULL,
+    code TEXT NOT NULL DEFAULT '',
+    message_id TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_versand_zeit ON versand(mandant_ref, zeit);
 -- Nutzer = E-Mail der Portal-Sitzung, ip gekürzt (IPv4 /24, IPv6 /48). Keine Dokumentinhalte.
 CREATE TABLE IF NOT EXISTS audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,7 +116,9 @@ def init(pfad: str) -> None:
         c.execute("PRAGMA journal_mode=WAL")
         # Datenbanken aus 0.1.0 haben die neuen Spalten von vorgang noch nicht.
         vorhanden = {z["name"] for z in c.execute("PRAGMA table_info(vorgang)")}
-        for spalte, typ in (("personen", "INTEGER"), ("abgleich", "TEXT"), ("bestaetigt_von", "TEXT"), ("bestaetigt_am", "TEXT")):
+        for spalte, typ in (("personen", "INTEGER"), ("abgleich", "TEXT"), ("bestaetigt_von", "TEXT"), ("bestaetigt_am", "TEXT"), ("email_enc", "TEXT"),
+                            ("email_herkunft", "TEXT"), ("code_hmac", "TEXT"), ("code_kid", "TEXT"), ("datum_herkunft", "TEXT"), ("personen_herkunft", "TEXT"),
+                            ("versendet_am", "TEXT"), ("versand_fehler", "TEXT")):
             if spalte not in vorhanden:
                 c.execute("ALTER TABLE vorgang ADD COLUMN %s %s" % (spalte, typ))
 
@@ -102,7 +151,11 @@ def audit(mandant_ref: str | None, nutzer: str, aktion: str, details: str = "", 
 # --- Vorgänge und Dokumente: immer mit Mandantenfilter ---
 
 REFERENZ = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
-VORGANG_FELDER = ("status", "personen", "abgleich", "bestaetigt_von", "bestaetigt_am")
+VORGANG_FELDER = ("status", "personen", "abgleich", "bestaetigt_von", "bestaetigt_am", "email_enc", "email_herkunft", "code_hmac", "code_kid", "datum_herkunft",
+                  "personen_herkunft", "versendet_am", "versand_fehler")
+# Felder, die nach außen gehen dürfen (nie email_enc, code_hmac, code_kid)
+VORGANG_OEFFENTLICH = ("id", "status", "erstellt", "personen", "abgleich", "bestaetigt_von", "bestaetigt_am", "email_herkunft", "datum_herkunft", "personen_herkunft",
+                       "versendet_am", "versand_fehler")
 
 
 def dokumente_verzeichnis(mandant_ref: str) -> Path:
@@ -127,13 +180,29 @@ def vorgang_aendern(mandant_ref: str, vorgang_id: int, **felder) -> bool:
 
 def vorgang_lesen(mandant_ref: str, vorgang_id: int) -> dict | None:
     with verbindung() as c:
-        z = c.execute("SELECT id, status, erstellt, personen, abgleich, bestaetigt_von, bestaetigt_am FROM vorgang WHERE id=? AND mandant_ref=?",
-                      (int(vorgang_id), mandant_ref)).fetchone()
+        z = c.execute("SELECT %s FROM vorgang WHERE id=? AND mandant_ref=?" % ", ".join(VORGANG_OEFFENTLICH), (int(vorgang_id), mandant_ref)).fetchone()
     if not z:
         return None
     d = dict(z)
     d["abgleich"] = json.loads(d["abgleich"]) if d["abgleich"] else None
     return d
+
+
+def vorgang_intern(mandant_ref: str, vorgang_id: int) -> dict | None:
+    """Alle Spalten inklusive verschlüsselter Werte. Nur für Versand und Prüfansicht, nie direkt ausgeben."""
+    with verbindung() as c:
+        z = c.execute("SELECT * FROM vorgang WHERE id=? AND mandant_ref=?", (int(vorgang_id), mandant_ref)).fetchone()
+    return dict(z) if z else None
+
+
+def vorgang_status_wechseln(mandant_ref: str, vorgang_id: int, von: str, nach: str, **felder) -> bool:
+    """Atomarer Zustandswechsel (nur wenn der Vorgang noch im Zustand ``von`` ist). True, wenn dieser Aufruf gewechselt hat."""
+    if any(k not in VORGANG_FELDER for k in felder):
+        raise ValueError("unbekanntes Feld")
+    sets = ", ".join(["status=?"] + ["%s=?" % k for k in felder])
+    with verbindung() as c:
+        return c.execute("UPDATE vorgang SET %s WHERE id=? AND mandant_ref=? AND status=?" % sets,
+                         (nach, *felder.values(), int(vorgang_id), mandant_ref, von)).rowcount == 1
 
 
 def vorgaenge_liste(mandant_ref: str) -> list:
@@ -182,7 +251,7 @@ def dokument_bytes(mandant_ref: str, vorgang_id: int, rolle: str) -> bytes | Non
     return pfad.read_bytes() if pfad.is_file() else None
 
 
-MANDANTENTABELLEN = ("dokument", "vorgang", "audit_log")
+MANDANTENTABELLEN = ("dokument", "link", "versand", "mail_zugang", "vorgang", "audit_log")
 
 
 def mandant_loeschen(mandant_ref: str) -> dict:
