@@ -118,7 +118,8 @@ def _erinnerung_fuer(mandant_ref: str, vorgang_id: int, jetzt: datetime) -> int:
         return 0
     ablauf = abschluss.berlin(link["laeuft_ab"])
     vorlage = mailtexte.ERINNERUNG_LETZTE_TEXT if e["nr"] == _STUFE_LETZTE else mailtexte.ERINNERUNG_TEXT
-    text = vorlage.format(link="%s/u#%s" % (config.basis_url(), token), ablauf=ablauf)
+    stunden = max(1, round((_dt(link["laeuft_ab"]) - jetzt).total_seconds() / 3600))
+    text = vorlage.format(link="%s/u#%s" % (config.basis_url(), token), ablauf=ablauf, stunden=stunden)
     ergebnis = mailversand.senden(mandant_ref, vorgang_id, "erinnerung", mailtexte.ERINNERUNG_BETREFF, text, an=adresse)
     token = None
     if ergebnis == "gesendet":
@@ -232,7 +233,7 @@ def fristen_nicht_unterschrieben(jetzt: datetime) -> int:
                 _hinweis(v["mandant_ref"], v["id"], art_weg)
                 n += 1
         elif jetzt >= ende - vorwarnung and not v["vorwarnung_am"]:
-            if _erledigt(_hinweis(v["mandant_ref"], v["id"], art_vor)):
+            if _erledigt(_hinweis(v["mandant_ref"], v["id"], art_vor, bis=abschluss.berlin(_z(ende)))):
                 db.vorgang_aendern(v["mandant_ref"], v["id"], vorwarnung_am=_z(jetzt))
     return n
 

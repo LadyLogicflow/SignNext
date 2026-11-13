@@ -36,7 +36,7 @@ def werte_fuer(mandant_ref: str) -> dict:
     if not e:
         raise TexteFehlen()
     return {"verantwortlicher": e["verantwortlicher"], "datenschutz_link": e["datenschutz_link"],
-            "ip_behandlung": "gekürzt" if config.ip_speicherung() == "gekuerzt" else "ungekürzt", "aufbewahrung_tage": str(config.aufbewahrung_tage())}
+            "ip_behandlung": "gekürzt" if config.ip_speicherung() == "gekuerzt" else "ungekürzt", "aufbewahrung_tage": str(e["aufbewahrung_tage"] or config.aufbewahrung_standard())}
 
 
 def laden(mandant_ref: str) -> dict:

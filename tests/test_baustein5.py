@@ -415,7 +415,7 @@ class TestDownload(B5):
         self.assertEqual(len(ms), vorher + 1)
         betreff, text = ms[-1]
         self.assertEqual(betreff, "SignNext: Hinweis zu Vorgang Nr. %d" % self.vid)
-        self.assertIn("abgerufen (Abruf 1 von 3)", text)
+        self.assertIn("wurde über den Zugangslink abgerufen (Abruf 1 von 3). Waren Sie oder das Mitglied das nicht, melden Sie sich bitte beim Betreiber.", text)
         self.assertNotIn("/d#", text)
         jobs.lauf(jetzt(minutes=2))
         self.assertEqual(len(self.mails(ABSENDER)), vorher + 1)                       # nicht doppelt
@@ -627,8 +627,10 @@ class TestErinnerungen(B5):
 
     def test_erinnerungstext_neutral(self):
         for text in (mailtexte.ERINNERUNG_TEXT, mailtexte.ERINNERUNG_LETZTE_TEXT, mailtexte.FERTIG_TEXT_MIT_LINK, mailtexte.FERTIG_TEXT_OHNE_LINK):
-            for verboten in ("rechtssicher", "Frist", "Mahnung", "Strafe", "Euro", "Finanzamt droht", "sofort"):
+            for verboten in ("rechtssicher", "Frist", "Mahnung", "Strafe", "Euro", "Finanzamt"):
                 self.assertNotIn(verboten, text)
+        for text in (mailtexte.ERINNERUNG_TEXT, mailtexte.ERINNERUNG_LETZTE_TEXT):
+            self.assertNotIn("sofort", text)                                          # kein Zeitdruck in den Erinnerungen (der Missbrauchshinweis in den Bestätigungen darf "sofort" sagen)
         for b in (mailtexte.ERINNERUNG_BETREFF, mailtexte.FERTIG_BETREFF):
             self.assertNotIn("Steuer", b)
 
@@ -661,7 +663,10 @@ class TestFristen(B5):
         jobs.lauf(jetzt(days=6, hours=2))
         ms = self.mails(ABSENDER)
         self.assertEqual(len(ms), n + 1)
-        self.assertIn("in etwa 24 Stunden ab", ms[-1][1])
+        with db.verbindung() as c:
+            ablauf = c.execute("SELECT laeuft_ab FROM link").fetchone()[0]
+        self.assertIn("Der Link läuft am %s ab" % abschluss.berlin(ablauf), ms[-1][1])      # der tatsächliche Zeitpunkt, nicht "in etwa 24 Stunden"
+        self.assertNotIn("24 Stunden", ms[-1][1])
         self.assertEqual(self.vorgang()["status"], "versendet")
         jobs.lauf(jetzt(days=6, hours=3))
         self.assertEqual(len(self.mails(ABSENDER)), n + 1)                            # Vorwarnung nur einmal
@@ -872,6 +877,61 @@ class TestLoeschprotokoll(B5):
         self.assertEqual(os.listdir(db.dokumente_verzeichnis("1001")) if db.dokumente_verzeichnis("1001").is_dir() else [], [])
 
 
+# ======================================================================================================== Datenschutzinformation nennt die Frist der Beratungsstelle
+
+class TestFristImText(B5):
+    def text(self):
+        self.starten()
+        self.einloggen()
+        self.lesen_n(SEITEN)
+        return self.texte_holen()["texte"]["datenschutz"]
+
+    def test_text_nennt_die_frist_der_beratungsstelle(self):
+        with db.verbindung() as c:
+            c.execute("UPDATE stelle_einstellung SET aufbewahrung_tage=30")
+        t = self.text()
+        self.assertIn("30 T", t)
+        self.assertNotIn("90 T", t)
+
+    def test_ohne_eigene_frist_gilt_der_standard(self):
+        with db.verbindung() as c:
+            c.execute("UPDATE stelle_einstellung SET aufbewahrung_tage=NULL")
+        self.assertIn("%d T" % config.aufbewahrung_standard(), self.text())
+
+    def test_satz_zur_aufbewahrung_wortlaut(self):
+        with db.verbindung() as c:
+            c.execute("UPDATE stelle_einstellung SET aufbewahrung_tage=30")
+        self.assertIn("Das unterschriebene Dokument und das Protokoll werden 30 Tage nach der Unterschrift gelöscht; Ihre Beratungsstelle erhält beides zum Herunterladen.", self.text())
+
+    def test_bestaetigung_ohne_link_spricht_nicht_von_einem_link(self):
+        self.assertNotIn("Link", mailtexte.FERTIG_TEXT_OHNE_LINK)
+        self.assertIn("Link", mailtexte.FERTIG_TEXT_MIT_LINK)
+        for t in (mailtexte.FERTIG_TEXT_MIT_LINK, mailtexte.FERTIG_TEXT_OHNE_LINK):
+            self.assertIn("Haben Sie nicht selbst unterschrieben, wenden Sie sich bitte sofort an Ihre Beratungsstelle.", t)
+
+    def test_erste_erinnerung_ohne_steuerbezug(self):
+        self.assertNotIn("Finanzamt", mailtexte.ERINNERUNG_TEXT)
+        self.assertIn("Sie wird benötigt, damit Ihre Beratungsstelle weiterarbeiten kann.", mailtexte.ERINNERUNG_TEXT)
+
+    def test_letzte_erinnerung_eigener_absatz_und_berechnete_stunden(self):
+        self.starten()
+        jobs.lauf(jetzt(hours=157))
+        _, text = self.mails(pdfs.MAIL)[-1]
+        self.assertTrue(text.startswith("Guten Tag,\n\nLetzte Erinnerung\n\n"), text[:60])
+        with db.verbindung() as c:
+            ablauf = c.execute("SELECT laeuft_ab FROM link").fetchone()[0]
+        self.assertIn("bis %s gültig" % abschluss.berlin(ablauf), text)
+        stunden = int(re.search(r"in etwa (\d+) Stunden", text).group(1))
+        self.assertIn(stunden, (10, 11))                                                # 168 h - 157 h, aus dem Ablaufzeitpunkt berechnet
+        self.assertNotIn("12 Stunden", text)
+
+    def test_hinweis_kontakt_des_betreibers_optional(self):
+        with mock.patch.dict(os.environ, {"SIGNNEXT_BETREIBER_KONTAKT": "support@betreiber.example\nBcc: x@y"}):
+            t = mailtexte.stelle_text("abruf", 5, zaehler=1, max=3)
+        self.assertIn("beim Betreiber (support@betreiber.example Bcc: x@y).", t)
+        self.assertNotIn("\nBcc", t)
+
+
 # ======================================================================================================== Thread, Betrieb
 
 class TestBetrieb(unittest.TestCase):
@@ -907,7 +967,7 @@ class TestBetrieb(unittest.TestCase):
 
     def test_version_und_abhaengigkeiten(self):
         wurzel = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.assertEqual(open(os.path.join(wurzel, "VERSION")).read().strip(), "0.5.0")
+        self.assertEqual(open(os.path.join(wurzel, "VERSION")).read().strip(), "0.5.1")
         req = open(os.path.join(wurzel, "requirements.txt")).read()
         self.assertRegex(req, r"(?m)^reportlab==\d+\.\d+\.\d+$")
         self.assertNotRegex(req.lower(), r"pymupdf|fitz")

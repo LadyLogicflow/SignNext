@@ -99,3 +99,8 @@ JOB_INTERVALL_SEKUNDEN = 60
 def aufbewahrung_standard() -> int:
     """Voreinstellung, solange die Beratungsstelle keine eigene Frist gesetzt hat (SIGNNEXT_AUFBEWAHRUNG_TAGE, Standard 90)."""
     return min(AUFBEWAHRUNG_MAX_TAGE, max(AUFBEWAHRUNG_MIN_TAGE, aufbewahrung_tage()))
+
+
+def betreiber_kontakt() -> str:
+    """Kontaktweg des Betreibers für den Hinweis bei einem unerwarteten Abruf (SIGNNEXT_BETREIBER_KONTAKT, ohne Zeilenumbrüche). Leer = ohne Angabe."""
+    return " ".join(os.environ.get("SIGNNEXT_BETREIBER_KONTAKT", "").split())[:200]
