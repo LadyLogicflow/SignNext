@@ -94,7 +94,7 @@ def ansicht(mandant_ref: str, vorgang_id: int) -> dict:
                         "pdf_wert": e["datum_pdf"]},
         "email": {"wert": e["email"], "herkunft": e["email_herkunft"], "pdf_wert": e["pdf_mail"]},
         "personen": {"wert": e["personen"], "herkunft": e["personen_herkunft"], "pdf_wert": e["pdf_personen"]},
-        "fehlend": fehlend(e), "versandbereit_pdf": v["status"] == "bereit" and not fehlend(e),
+        "fehlend": fehlend(e), "versandbereit_pdf": v["status"] == "bereit" and not fehlend(e), "erinnerungen_aus": bool(v.get("erinnerungen_aus")),
     }
 
 

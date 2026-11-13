@@ -297,20 +297,28 @@ def einstellungen_lesen():
 @bp.put("/einstellungen")
 @anmeldung_pflicht("admin")
 def einstellungen_setzen():
+    """Angaben der Beratungsstelle. Beim ersten Mal sind ``verantwortlicher`` und ``datenschutz_link`` Pflicht; danach darf jede Teilmenge der vier Felder gesendet werden
+    (nicht gesendete Felder bleiben unverändert)."""
+    erlaubt = {"verantwortlicher", "datenschutz_link", "aufbewahrung_tage", "mitglied_download_link"}
     d = request.get_json(silent=True)
-    if not isinstance(d, dict) or not {"verantwortlicher", "datenschutz_link"} <= set(d) or set(d) - {"verantwortlicher", "datenschutz_link", "aufbewahrung_tage", "mitglied_download_link"}:
+    if not isinstance(d, dict) or not d or set(d) - erlaubt:
         return jsonify({"error": "eingabe_ungueltig", "meldung": MELDUNGEN["eingabe_ungueltig"]}), 422
-    v, link = d["verantwortlicher"], d["datenschutz_link"]
+    mandant = g.nutzer["mandant_ref"]
+    bisher = db.stelle_einstellung_lesen(mandant)
+    if bisher is None and not {"verantwortlicher", "datenschutz_link"} <= set(d):
+        return jsonify({"error": "eingabe_ungueltig", "meldung": "Bitte zuerst Name, Anschrift und Kontakt sowie den Link zur Datenschutzerklärung angeben."}), 422
+    v = d["verantwortlicher"] if "verantwortlicher" in d else bisher["verantwortlicher"]
+    link = d["datenschutz_link"] if "datenschutz_link" in d else bisher["datenschutz_link"]
     if not isinstance(v, str) or not 5 <= len(v.strip()) <= 500 or re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", v):
         return jsonify({"error": "eingabe_ungueltig", "meldung": "Bitte Name, Anschrift und Kontakt der Beratungsstelle angeben.", "feld": "verantwortlicher"}), 422
     if not isinstance(link, str) or not re.fullmatch(r"https://[^\s<>\"']{4,300}", link.strip()):
         return jsonify({"error": "eingabe_ungueltig", "meldung": "Bitte einen Link zur Datenschutzerklärung (https) angeben.", "feld": "datenschutz_link"}), 422
     tage = d.get("aufbewahrung_tage")
-    if tage is not None and (isinstance(tage, bool) or not isinstance(tage, int) or not config.AUFBEWAHRUNG_MIN_TAGE <= tage <= config.AUFBEWAHRUNG_MAX_TAGE):
+    if "aufbewahrung_tage" in d and (isinstance(tage, bool) or not isinstance(tage, int) or not config.AUFBEWAHRUNG_MIN_TAGE <= tage <= config.AUFBEWAHRUNG_MAX_TAGE):
         return jsonify({"error": "eingabe_ungueltig", "meldung": "Die Aufbewahrungsfrist muss zwischen %d und %d Tagen liegen." % (config.AUFBEWAHRUNG_MIN_TAGE, config.AUFBEWAHRUNG_MAX_TAGE),
                         "feld": "aufbewahrung_tage"}), 422
     dl = d.get("mitglied_download_link")
-    if dl is not None and not isinstance(dl, bool):
+    if "mitglied_download_link" in d and not isinstance(dl, bool):
         return jsonify({"error": "eingabe_ungueltig", "meldung": MELDUNGEN["eingabe_ungueltig"], "feld": "mitglied_download_link"}), 422
     # Die Frist gilt für Vorgänge, die NACH der Änderung abgeschlossen werden; bereits abgeschlossene behalten ihre Frist (keine rückwirkende Verkürzung).
     with db.verbindung() as c:
@@ -318,7 +326,7 @@ def einstellungen_setzen():
                   "ON CONFLICT(mandant_ref) DO UPDATE SET verantwortlicher=excluded.verantwortlicher, datenschutz_link=excluded.datenschutz_link, "
                   "geaendert_am=excluded.geaendert_am, geaendert_von=excluded.geaendert_von, "
                   "aufbewahrung_tage=COALESCE(?, stelle_einstellung.aufbewahrung_tage), mitglied_download_link=COALESCE(?, stelle_einstellung.mitglied_download_link)",
-                  (g.nutzer["mandant_ref"], v.strip(), link.strip(), db.jetzt(), g.nutzer["email"], tage, 1 if dl is None else int(dl),
+                  (mandant, v.strip(), link.strip(), db.jetzt(), g.nutzer["email"], tage, 1 if dl is None else int(dl),
                    tage, None if dl is None else int(dl)))
     audit("einstellungen_gesetzt", "")
     return jsonify({"gesetzt": True})

@@ -9,6 +9,8 @@ FREIGEGEBEN = False
 
 HINWEIS_GEBURTSDATUM = ("Zum Öffnen benötigen Sie das Geburtsdatum der Person, für die das Dokument erstellt wurde, bei Ehepaaren und eingetragenen Lebenspartnerschaften "
                         "der zuerst genannten Person (sechs Ziffern: Tag, Monat, zweistelliges Jahr, ohne Punkte).")
+HINWEIS_GEBURTSDATUM_ABRUF = ("Zum Abruf benötigen Sie wieder das Geburtsdatum der Person, für die das Dokument erstellt wurde, bei Ehepaaren und eingetragenen Lebenspartnerschaften "
+                             "der zuerst genannten Person (sechs Ziffern: Tag, Monat, zweistelliges Jahr, ohne Punkte).")
 HINWEIS_NICHT_SELBST = "Haben Sie nicht selbst unterschrieben, wenden Sie sich bitte sofort an Ihre Beratungsstelle."
 HINWEIS_UNERWARTET = "Haben Sie diese Nachricht nicht erwartet, öffnen Sie den Link bitte nicht und rufen Sie Ihre Beratungsstelle an."
 AUSSTIEG = "Wenn Sie nicht unterschreiben möchten, wenden Sie sich bitte an Ihre Beratungsstelle."
@@ -31,7 +33,7 @@ FERTIG_BETREFF = "Ihre Beratungsstelle: Ihre Unterschrift wurde erfasst"
 FERTIG_TEXT_MIT_LINK = (
     "Guten Tag,\n\n"
     "Ihre Unterschrift wurde erfasst. Sie können das Dokument mit diesem persönlichen Link abrufen (7 Tage gültig, höchstens {max} Abrufe, bitte nicht weiterleiten):\n{link}\n\n"
-    + HINWEIS_UNERWARTET + "\n\n" + HINWEIS_NICHT_SELBST + "\n\nBei Fragen wenden Sie sich bitte an Ihre Beratungsstelle.\n")
+    + HINWEIS_GEBURTSDATUM_ABRUF + "\n\n" + HINWEIS_UNERWARTET + "\n\n" + HINWEIS_NICHT_SELBST + "\n\nBei Fragen wenden Sie sich bitte an Ihre Beratungsstelle.\n")
 FERTIG_TEXT_OHNE_LINK = (
     "Guten Tag,\n\n"
     "Ihre Unterschrift wurde erfasst. Ihre Beratungsstelle hat das Dokument erhalten und gibt es Ihnen auf Wunsch weiter.\n\n"

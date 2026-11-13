@@ -196,7 +196,8 @@ CREATE TABLE IF NOT EXISTS download_link (
     laeuft_ab TEXT NOT NULL,
     abrufe INTEGER NOT NULL DEFAULT 0,
     max_abrufe INTEGER NOT NULL DEFAULT 3,
-    gesperrt INTEGER NOT NULL DEFAULT 0
+    gesperrt INTEGER NOT NULL DEFAULT 0,
+    fehlversuche INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_download_vorgang ON download_link(mandant_ref, vorgang_id);
 CREATE TABLE IF NOT EXISTS download_log (
@@ -256,7 +257,8 @@ def init(pfad: str) -> None:
             if spalte not in vorhanden:
                 c.execute("ALTER TABLE vorgang ADD COLUMN %s %s" % (spalte, typ))
         for tabelle, spalte, typ in (("link", "token_enc", "TEXT"), ("stelle_einstellung", "aufbewahrung_tage", "INTEGER"),
-                                     ("stelle_einstellung", "mitglied_download_link", "INTEGER NOT NULL DEFAULT 1")):
+                                     ("stelle_einstellung", "mitglied_download_link", "INTEGER NOT NULL DEFAULT 1"),
+                                     ("download_link", "fehlversuche", "INTEGER NOT NULL DEFAULT 0")):
             if spalte not in {z["name"] for z in c.execute("PRAGMA table_info(%s)" % tabelle)}:
                 c.execute("ALTER TABLE %s ADD COLUMN %s %s" % (tabelle, spalte, typ))
 

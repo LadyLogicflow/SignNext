@@ -978,7 +978,7 @@ class TestEinstellungen(MailBasis):
                              ({"datenschutz_link": "https://x.example/<script>"}, "datenschutz_link"), ({"datenschutz_link": ""}, "datenschutz_link")):
             r = self.c.put("/api/v1/einstellungen", json=dict(gut, **kaputt))
             self.assertEqual((r.status_code, r.get_json().get("feld")), (422, feld), kaputt)
-        for body in ({}, {"verantwortlicher": "Beratungsstelle X, Weg 1"}, dict(gut, extra=1), [], None):
+        for body in ({}, dict(gut, extra=1), [], None):                                  # Teilmengen sind ab 0.5.3 erlaubt (siehe TestV053)
             self.assertEqual(self.c.put("/api/v1/einstellungen", json=body).status_code, 422, body)
 
     def test_nur_admin_und_nur_eigener_mandant(self):

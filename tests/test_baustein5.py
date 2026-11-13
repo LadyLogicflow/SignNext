@@ -20,7 +20,7 @@ import mailer
 import mailtexte
 from tests import pdfs
 from tests.test_baustein3 import ABSENDER
-from tests.test_baustein4 import BASIS, ORIGIN, SEITEN, ZugangBasis, png_bytes, uri
+from tests.test_baustein4 import BASIS, CODE, ORIGIN, SEITEN, ZugangBasis, png_bytes, uri
 
 
 def jetzt(**delta):
@@ -67,10 +67,10 @@ class B5(ZugangBasis):
         with db.verbindung() as c:
             return [dict(z) for z in c.execute("SELECT * FROM loeschprotokoll ORDER BY id")]
 
-    def hole_download(self, token, kopf=None, ip="198.51.100.7"):
+    def hole_download(self, token, kopf=None, ip="198.51.100.7", code=CODE):
         h = dict(ORIGIN)
         h.update(kopf or {})
-        return self.m.post("/api/v1/download", json={"token": token}, headers=h, base_url=BASIS, environ_overrides={"REMOTE_ADDR": ip})
+        return self.m.post("/api/v1/download", json={"token": token, "code": code}, headers=h, base_url=BASIS, environ_overrides={"REMOTE_ADDR": ip})
 
 
 # ======================================================================================================== Abschluss
@@ -341,7 +341,7 @@ class TestDownload(B5):
             self.assertTrue(r.get_data().startswith(b"%PDF"))
         self.assertEqual(r.get_data(), db.dokument_bytes("1001", self.vid, "S"))
         r = self.hole_download(token)
-        self.assertEqual((r.status_code, r.get_json()["error"]), (404, "nicht_verfuegbar"))
+        self.assertEqual((r.status_code, r.get_json()["error"], r.get_json()["gesperrt"]), (401, "angaben_stimmen_nicht", True))          # aufgebraucht, auch mit richtigem Code
         with db.verbindung() as c:
             self.assertEqual([z["zaehler"] for z in c.execute("SELECT zaehler FROM download_log ORDER BY id")], [1, 2, 3])
 
@@ -370,7 +370,10 @@ class TestDownload(B5):
         with db.verbindung() as c:
             c.execute("UPDATE download_link SET gesperrt=0, abrufe=max_abrufe")
         antworten.append(self.hole_download(token))                                   # aufgebraucht
-        self.assertEqual({(a.status_code, a.get_data()) for a in antworten}, {(404, antworten[0].get_data())})
+        self.assertEqual({a.status_code for a in antworten}, {401})
+        self.assertEqual({a.get_json()["error"] for a in antworten}, {"angaben_stimmen_nicht"})
+        self.assertEqual([a.get_json()["gesperrt"] for a in antworten[2:]], [True, True, True])                 # tote Links antworten wie "gesperrt"
+        self.assertTrue(all(set(a.get_json()) == {"error", "meldung", "versuch", "von", "gesperrt"} for a in antworten))      # immer dieselbe Form
 
     def test_origin_pflicht_und_nur_post_mit_body(self):
         self.abgeschlossen()
@@ -380,8 +383,10 @@ class TestDownload(B5):
         r = self.m.post("/api/v1/download", json={"token": token}, headers={"Origin": "https://boese.example"}, base_url=BASIS)
         self.assertEqual(r.status_code, 403)
         self.assertEqual(self.m.get("/api/v1/download?token=" + token, base_url=BASIS).status_code, 405)
-        for body in ({"token": token, "x": 1}, {}, [], "x", {"token": 5}):
-            self.assertEqual(self.hole_download_roh(body).status_code, 404, body)
+        for body in ({"token": token, "code": CODE, "x": 1}, {"token": token, "code": CODE, "download": True}, [], "x", None):
+            self.assertEqual(self.hole_download_roh(body).status_code, 400, body)
+        for body in ({}, {"token": 5}, {"token": token}, {"token": token, "code": 10260}, {"code": CODE}):
+            self.assertEqual(self.hole_download_roh(body).status_code, 401, body)                              # kein Code oder keine Form: gezählter Fehlversuch, nie ein PDF
         with db.verbindung() as c:
             self.assertEqual(c.execute("SELECT COUNT(*) FROM download_log").fetchone()[0], 0)
 
@@ -400,7 +405,7 @@ class TestDownload(B5):
         ts = [threading.Thread(target=abruf, args=(i,)) for i in range(8)]
         [t.start() for t in ts]
         [t.join() for t in ts]
-        self.assertEqual(sorted(codes), [200, 200, 200] + [404] * 5)
+        self.assertEqual(sorted(codes), [200, 200, 200] + [401] * 5)
 
     def test_ip_limit(self):
         self.abgeschlossen()
@@ -408,7 +413,64 @@ class TestDownload(B5):
             self.hole_download("y" * 43, ip="203.0.113.5")
         r = self.hole_download("y" * 43, ip="203.0.113.5")
         self.assertEqual(r.status_code, 429)
-        self.assertEqual(self.hole_download("y" * 43, ip="203.0.113.6").status_code, 404)
+        self.assertEqual(self.hole_download("y" * 43, ip="203.0.113.6").status_code, 401)
+
+    # --- zweiter Faktor: Geburtsdatum wie beim Öffnen
+
+    def test_download_ohne_richtigen_code_gibt_kein_pdf_und_zaehlt_keinen_abruf(self):
+        self.abgeschlossen()
+        token = self.link_aus_mail()
+        for falsch in ("", "999999", "01.02.60", "01026", "0102601", "abcdef", " 010260"):
+            r = self.hole_download(token, code=falsch)
+            self.assertEqual(r.status_code, 401, falsch)
+            self.assertNotIn(b"%PDF", r.get_data())
+        with db.verbindung() as c:
+            self.assertEqual(c.execute("SELECT COUNT(*) FROM download_log").fetchone()[0], 0)
+            self.assertEqual(c.execute("SELECT abrufe FROM download_link").fetchone()[0], 0)
+
+    def test_versuch_x_von_5_und_dauerhafte_sperre(self):
+        self.abgeschlossen()
+        token = self.link_aus_mail()
+        antworten = [self.hole_download(token, code="999999").get_json() for _ in range(5)]
+        self.assertEqual([(a["versuch"], a["von"], a["gesperrt"]) for a in antworten], [(1, 5, False), (2, 5, False), (3, 5, False), (4, 5, False), (5, 5, True)])
+        r = self.hole_download(token)                                                 # der richtige Code hilft nach der Sperre nicht mehr
+        self.assertEqual((r.status_code, r.get_json()["gesperrt"]), (401, True))
+        self.assertNotIn(b"%PDF", r.get_data())
+        with db.verbindung() as c:
+            z = c.execute("SELECT gesperrt, fehlversuche FROM download_link").fetchone()
+            self.assertEqual((z["gesperrt"], z["fehlversuche"]), (1, 5))
+            self.assertEqual(c.execute("SELECT COUNT(*) FROM download_log").fetchone()[0], 0)
+        self.assertEqual(len(self.audit_zeilen("download_link_gesperrt")), 1)
+        self.assertEqual(len(self.audit_zeilen("download_code_falsch")), 4)
+
+    def test_richtiger_code_dazwischen_setzt_den_zaehler_nicht_zurueck(self):
+        self.abgeschlossen()
+        token = self.link_aus_mail()
+        for _ in range(3):
+            self.hole_download(token, code="999999")
+        self.assertEqual(self.hole_download(token).status_code, 200)
+        self.assertEqual(self.hole_download(token, code="999999").get_json()["versuch"], 4)
+
+    def test_unbekannter_link_wird_genauso_gezaehlt_und_gesperrt(self):
+        self.abgeschlossen()
+        fremd = "z" * 43
+        antworten = [self.hole_download(fremd).get_json() for _ in range(6)]
+        self.assertEqual([a["versuch"] for a in antworten], [1, 2, 3, 4, 5, 5])
+        self.assertEqual([a["gesperrt"] for a in antworten], [False] * 4 + [True, True])
+        bekannt = self.hole_download(self.link_aus_mail(), code="999999").get_json()
+        self.assertEqual(set(bekannt), set(antworten[0]))                             # gleiche Form wie bei einem unbekannten Link
+
+    def test_download_mail_nennt_den_zweiten_faktor_aber_nie_das_datum(self):
+        self.abgeschlossen()
+        _, text = self.mails(pdfs.MAIL)[-1]
+        self.assertIn("Zum Abruf benötigen Sie wieder das Geburtsdatum der Person, für die das Dokument erstellt wurde", text)
+        self.assertIn("sechs Ziffern: Tag, Monat, zweistelliges Jahr, ohne Punkte", text)
+        for verboten in (CODE, pdfs.DOB):
+            self.assertNotIn(verboten, text)
+
+    def test_download_der_beratungsstelle_hat_keinen_zweiten_faktor(self):
+        self.abgeschlossen()
+        self.assertEqual(self.c.get("/api/v1/vorgaenge/%d/download/dokument" % self.vid).status_code, 200)
 
     def test_beratungsstelle_bekommt_info_nach_abruf_ohne_link(self):
         self.abgeschlossen()
@@ -937,11 +999,77 @@ class TestFristImText(B5):
         self.assertNotIn("\nBcc", t)
 
 
+# ======================================================================================================== v0.5.3: Teil-Einstellungen, Erinnerungsstatus, Abrufzähler
+
+class TestV053(B5):
+    def put(self, d):
+        return self.c.put("/api/v1/einstellungen", json=d)
+
+    def stelle(self):
+        return db.stelle_einstellung_lesen("1001")
+
+    def test_teilweise_aenderung_laesst_den_rest_unveraendert(self):
+        vorher = self.stelle()
+        r = self.put({"aufbewahrung_tage": 30})
+        self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
+        nachher = self.stelle()
+        self.assertEqual((nachher["verantwortlicher"], nachher["datenschutz_link"], nachher["aufbewahrung_tage"]), (vorher["verantwortlicher"], vorher["datenschutz_link"], 30))
+        self.assertEqual(self.put({"mitglied_download_link": False}).status_code, 200)
+        n2 = self.stelle()
+        self.assertEqual((n2["aufbewahrung_tage"], n2["mitglied_download_link"], n2["verantwortlicher"]), (30, 0, vorher["verantwortlicher"]))
+        self.assertEqual(self.put({"verantwortlicher": "Neue Beratungsstelle, Weg 5, 12345 Ort"}).status_code, 200)
+        n3 = self.stelle()
+        self.assertEqual((n3["verantwortlicher"], n3["aufbewahrung_tage"], n3["mitglied_download_link"], n3["datenschutz_link"]),
+                         ("Neue Beratungsstelle, Weg 5, 12345 Ort", 30, 0, vorher["datenschutz_link"]))
+
+    def test_teilweise_aenderung_wird_weiter_geprueft(self):
+        for body in ({}, {"x": 1}, {"aufbewahrung_tage": 29}, {"aufbewahrung_tage": True}, {"mitglied_download_link": "ja"}, {"verantwortlicher": "x"}, {"verantwortlicher": 5},
+                     {"datenschutz_link": "http://unsicher.example"}, {"datenschutz_link": ""}, None, []):
+            self.assertEqual(self.put(body).status_code, 422, body)
+        self.assertEqual(self.stelle()["aufbewahrung_tage"], None)
+
+    def test_ohne_bestehende_angaben_sind_beide_pflicht(self):
+        from tests.test_baustein1 import me
+        self.als("tb", me(email="b@test.example", ref="2002"))
+        for body in ({"aufbewahrung_tage": 30}, {"verantwortlicher": "Beratungsstelle Zwei, Weg 2"}, {"datenschutz_link": "https://zwei.example/ds"}, {"mitglied_download_link": True}):
+            self.assertEqual(self.put(body).status_code, 422, body)
+        self.assertIsNone(db.stelle_einstellung_lesen("2002"))
+        self.assertEqual(self.put({"verantwortlicher": "Beratungsstelle Zwei, Weg 2", "datenschutz_link": "https://zwei.example/ds", "aufbewahrung_tage": 60}).status_code, 200)
+        self.assertEqual(db.stelle_einstellung_lesen("2002")["aufbewahrung_tage"], 60)
+        self.assertEqual(self.stelle()["aufbewahrung_tage"], None)                      # Mandant 1001 unberührt
+
+    def test_teilweise_aenderung_trifft_nur_den_eigenen_mandanten(self):
+        from tests.test_baustein1 import me
+        self.einstellungen_setzen("2002")
+        self.als("tb", me(email="b@test.example", ref="2002"))
+        self.assertEqual(self.put({"aufbewahrung_tage": 365}).status_code, 200)
+        self.assertEqual(db.stelle_einstellung_lesen("2002")["aufbewahrung_tage"], 365)
+        self.assertIsNone(self.stelle()["aufbewahrung_tage"])
+
+    def test_pruefung_meldet_erinnerungsstatus(self):
+        self.starten()
+        self.assertEqual(self.c.get("/api/v1/vorgaenge/%d/pruefung" % self.vid).get_json()["erinnerungen_aus"], False)
+        self.c.put("/api/v1/vorgaenge/%d/erinnerungen" % self.vid, json={"an": False})
+        self.assertEqual(self.c.get("/api/v1/vorgaenge/%d/pruefung" % self.vid).get_json()["erinnerungen_aus"], True)
+        self.assertEqual(self.c.get("/api/v1/vorgaenge/%d" % self.vid).get_json()["erinnerungen_aus"], 1)
+
+    def test_abrufzaehler_in_den_kopfzeilen(self):
+        self.unterschreiben()
+        jobs.lauf(jetzt())
+        token = re.search(r"/d#([A-Za-z0-9_-]+)", self.mails(pdfs.MAIL)[-1][1]).group(1)
+        for i in (1, 2, 3):
+            r = self.hole_download(token)
+            self.assertEqual((r.status_code, r.headers["X-Abruf"], r.headers["X-Abruf-Max"]), (200, str(i), "3"))
+        r = self.hole_download(token)
+        self.assertEqual(r.status_code, 401)
+        self.assertNotIn("X-Abruf", r.headers)
+
+
 # ======================================================================================================== Texte von Irony (Hash des Quelltextes)
 
 IRONY_HASHES = {
-    "datenschutz_mit_link": "d3f4d169b1069377722643c1857de2d465cd52c68c3b7f2c837cabe00d67d6bf",
-    "datenschutz_ohne_link": "4aeabd21877c19f4d6c3ea4bd4ce4f454a4f6db8102f11b780e784bb9d91fef7",
+    "datenschutz_mit_link": "848a52230ba979d5391948fd9e5a66629afdfbbbff50cf783ec95fc03df89f50",
+    "datenschutz_ohne_link": "c4197732bbae893f79d86154cd30a1e6b832d2c3722a4af8ad074a7b811415b2",
     "unterschriftssatz": "94acb868108539405aac85f72d8b5a57693d11b7945e0dc4f75973e1f44561d0",
     "haken": "2642ea4cf9313a1bbbbc0544c35ab8f62c8e4b1c5a195a675b6eb264f9bb2a8d",
     "ausstieg": "7d18743423df39a9b26239a1835f589153de8054b3bb04198fbe38122f2d1324",
@@ -961,6 +1089,12 @@ class TestIronyTexte(B5):
             self.assertFalse(daten.endswith(b"\n"), name)
             self.assertNotIn(b"\n", daten, name)
             self.assertFalse(daten.startswith((b'"', "„".encode())) or daten.endswith(("“".encode(), b'"')), name)
+
+    def test_sicherungssatz_option_b(self):
+        for name in ("datenschutz_mit_link", "datenschutz_ohne_link"):
+            text = self.roh(name).decode("utf-8")
+            self.assertIn("In Sicherungen können gelöschte Dokumente noch bis zu 14 Tage, andere gelöschte Daten bis zu 3 Monate vorhanden sein.", text)
+            self.assertNotIn("Datensicherungen", text)
 
     def test_variablen_sind_benannt(self):
         erlaubt = {"verantwortlicher", "ip_behandlung", "aufbewahrung_tage", "datenschutz_link"}
@@ -1065,7 +1199,7 @@ class TestBetrieb(unittest.TestCase):
 
     def test_version_und_abhaengigkeiten(self):
         wurzel = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.assertEqual(open(os.path.join(wurzel, "VERSION")).read().strip(), "0.5.2")
+        self.assertEqual(open(os.path.join(wurzel, "VERSION")).read().strip(), "0.5.3")
         req = open(os.path.join(wurzel, "requirements.txt")).read()
         self.assertRegex(req, r"(?m)^reportlab==\d+\.\d+\.\d+$")
         self.assertNotRegex(req.lower(), r"pymupdf|fitz")
