@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mail-Zugang - SignNext</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Mail-Zugang</h1>
+        </header>
+
+        <main id="app">
+            <div id="loading" class="loading">Lade Mail-Zugang...</div>
+
+            <div id="mail-zugang" class="hidden">
+                <section class="card">
+                    <h2>SMTP-Einstellungen</h2>
+                    <form id="form-mail">
+                        <div class="form-group">
+                            <label for="host">Server *</label>
+                            <input type="text" id="host" required placeholder="smtp.example.com">
+                            <small>Hostname des SMTP-Servers</small>
+                            <div id="host-error" class="field-error hidden"></div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="port">Port *</label>
+                            <select id="port" required>
+                                <option value="">Bitte wählen</option>
+                                <option value="465">465 (TLS)</option>
+                                <option value="587">587 (STARTTLS)</option>
+                            </select>
+                            <div id="port-error" class="field-error hidden"></div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="benutzer">Benutzer *</label>
+                            <input type="text" id="benutzer" required>
+                            <div id="benutzer-error" class="field-error hidden"></div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="passwort">Passwort</label>
+                            <input type="password" id="passwort" placeholder="Nur beim Ändern eingeben">
+                            <small>Leer lassen, um bestehendes Passwort zu behalten</small>
+                            <div id="passwort-error" class="field-error hidden"></div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="absender-name">Absender-Name *</label>
+                            <input type="text" id="absender-name" required placeholder="Ihre Beratungsstelle">
+                            <small>Name für ausgehende Mails</small>
+                            <div id="absender-name-error" class="field-error hidden"></div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="absender-adresse">Absender-Adresse *</label>
+                            <input type="email" id="absender-adresse" required placeholder="noreply@example.com">
+                            <small>E-Mail-Adresse für ausgehende Mails</small>
+                            <div id="absender-adresse-error" class="field-error hidden"></div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="signatur">Signaturtext</label>
+                            <textarea id="signatur" rows="4" placeholder="Ihre Beratungsstelle"></textarea>
+                            <div id="signatur-error" class="field-error hidden"></div>
+                        </div>
+
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" id="bcc-an-absender">
+                                Kopie an eigene Absenderadresse (BCC)
+                            </label>
+                            <small>Die Kopie enthält den Zugangslink</small>
+                        </div>
+
+                        <div id="save-error" class="error hidden"></div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button type="submit" class="btn btn-primary">Speichern</button>
+                            <button type="button" id="btn-test" class="btn btn-secondary">Testmail senden</button>
+                            <button type="button" id="btn-delete" class="btn btn-secondary">Löschen</button>
+                        </div>
+                    </form>
+                </section>
+
+                <section class="card" id="test-result" class="hidden">
+                    <h2>Testergebnis</h2>
+                    <div id="test-output"></div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <script src="mail-zugang.js"></script>
+</body>
+</html>
