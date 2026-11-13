@@ -14,6 +14,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadMailZugang();
 
     document.getElementById('form-angaben').addEventListener('submit', saveAngaben);
+    document.getElementById('erinnerungen-aktiv').addEventListener('change', saveErinnerungen);
     document.getElementById('btn-versenden').addEventListener('click', versenden);
 
     // Live-Validation
@@ -93,6 +94,9 @@ async function loadPruefung() {
             document.getElementById('personen').value = personen.wert;
         }
         setHerkunft('pers-herkunft', personen.herkunft);
+
+        // Erinnerungen-Status
+        document.getElementById('erinnerungen-aktiv').checked = pruefungData.erinnerungen_aktiv || false;
 
         document.getElementById('loading').classList.add('hidden');
         document.getElementById('pruefung').classList.remove('hidden');
@@ -210,6 +214,16 @@ async function loadMailZugang() {
         const status = document.getElementById('mail-status');
         status.textContent = 'Fehler beim Laden';
         status.className = 'error-text';
+    }
+}
+
+async function saveErinnerungen() {
+    const aktiv = document.getElementById('erinnerungen-aktiv').checked;
+
+    try {
+        await api('PUT', `/vorgaenge/${vorgangId}/erinnerungen`, {erinnerungen_aktiv: aktiv});
+    } catch (err) {
+        showError('erinnerungen-error', err.message);
     }
 }
 
