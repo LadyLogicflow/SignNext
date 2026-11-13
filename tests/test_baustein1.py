@@ -39,6 +39,9 @@ def me(email="a@test.example", rolle="bst_admin", ref="1001", produkte=STANDARD,
 class Basis(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
+        penv = mock.patch.dict(os.environ, {"SIGNNEXT_DATEN": os.path.join(self.tmp.name, "daten")})
+        penv.start()
+        self.addCleanup(penv.stop)
         self.app = create_app(os.path.join(self.tmp.name, "t.db"))
         self.c = self.app.test_client()
         portal_auth.cache_leeren()
@@ -252,7 +255,7 @@ class TestMandantentrennung(Basis):
         self.als("tb", me(email="b@test.example", ref="2002"))
         self.c.get("/api/v1/vorgaenge/%d" % self.b1)
         zahlen = db.mandant_loeschen("1001")
-        self.assertEqual(zahlen, {"vorgang": 2, "audit_log": 1})
+        self.assertEqual(zahlen, {"dokument": 0, "vorgang": 2, "audit_log": 1, "dateien": 0})
         self.assertEqual(db.vorgaenge_liste("1001"), [])
         self.assertEqual(len(db.vorgaenge_liste("2002")), 1)
         self.assertEqual([z["mandant_ref"] for z in self.audit_zeilen()], ["2002"])

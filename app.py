@@ -2,7 +2,7 @@
 import logging
 import os
 
-from flask import Flask, jsonify
+from flask import Flask, Request, jsonify
 
 import api
 import config
@@ -25,14 +25,26 @@ def _health_daten() -> tuple[dict, bool]:
     return daten, gesund
 
 
+KLEIN = 300000
+UPLOAD_MAX = 2 * 15 * 1024 * 1024 + 1024 * 1024
+
+
+class _Anfrage(Request):
+    """Nur der Upload (zwei PDFs) darf groß sein, alle anderen Routen nehmen höchstens 300 kB."""
+
+    @property
+    def max_content_length(self):
+        return UPLOAD_MAX if self.endpoint == "api.vorgang_anlegen" else KLEIN
+
+
 def create_app(db_pfad: str | None = None) -> Flask:
     app = Flask(__name__)
+    app.request_class = _Anfrage
     if db_pfad is None:
         verz = config.daten_verzeichnis()
         verz.mkdir(parents=True, exist_ok=True)
         db_pfad = str(verz / "signnext.db")
     db.init(db_pfad)
-    app.config["MAX_CONTENT_LENGTH"] = 300000
     app.register_blueprint(api.bp)
 
     @app.errorhandler(413)
