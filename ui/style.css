@@ -94,7 +94,10 @@ main {
     color: var(--color-text);
 }
 
-.form-group input[type="text"] {
+.form-group input[type="text"],
+.form-group input[type="url"],
+.form-group input[type="number"],
+.form-group textarea {
     width: 100%;
     padding: 0.75rem;
     border: 1px solid var(--color-border);
@@ -103,13 +106,19 @@ main {
     font-family: inherit;
 }
 
-.form-group input[type="text"]:focus {
+.form-group input[type="text"]:focus,
+.form-group input[type="url"]:focus,
+.form-group input[type="number"]:focus,
+.form-group textarea:focus {
     outline: none;
     border-color: var(--color-primary);
     box-shadow: 0 0 0 3px rgba(31, 58, 95, 0.1);
 }
 
-.form-group input[type="text"].error-input {
+.form-group input[type="text"].error-input,
+.form-group input[type="url"].error-input,
+.form-group input[type="number"].error-input,
+.form-group textarea.error-input {
     border-color: var(--color-error);
 }
 

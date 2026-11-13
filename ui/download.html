@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Download - SignNext</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Ihr unterschriebenes Dokument</h1>
+        </header>
+
+        <main id="app">
+            <div id="download-form">
+                <section class="card">
+                    <h2>Download</h2>
+                    <div class="info-box">
+                        <p>Bitte geben Sie Ihr Geburtsdatum ein, um das Dokument herunterzuladen.</p>
+                    </div>
+                    <form id="form-download">
+                        <div class="form-group">
+                            <label for="code">Geburtsdatum</label>
+                            <input type="text" id="code" placeholder="TT.MM.JJ" maxlength="8" required>
+                            <small>Format: TT.MM.JJ</small>
+                            <div id="code-error" class="error hidden"></div>
+                            <div id="versuch-info" class="warning hidden"></div>
+                        </div>
+                        <button type="submit" class="btn btn-primary" id="btn-download">Herunterladen</button>
+                    </form>
+                    <div class="info-box" id="abruf-info" style="margin-top: 1rem;" class="hidden">
+                        <p id="download-info"></p>
+                    </div>
+                </section>
+            </div>
+
+            <div id="no-token" class="hidden">
+                <section class="card">
+                    <div class="error">
+                        Bitte öffnen Sie den Link aus der E-Mail erneut.
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <script src="download.js"></script>
+</body>
+</html>

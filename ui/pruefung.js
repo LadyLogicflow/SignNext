@@ -14,6 +14,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadMailZugang();
 
     document.getElementById('form-angaben').addEventListener('submit', saveAngaben);
+    document.getElementById('erinnerungen-aktiv').addEventListener('change', saveErinnerungen);
     document.getElementById('btn-versenden').addEventListener('click', versenden);
 
     // Live-Validation
@@ -65,7 +66,7 @@ async function loadPruefung() {
         }
 
         // Abgleich-Button wenn bestaetigung_noetig
-        if (geburtsdatum.bestaetigung_noetig) {
+        if (pruefungData.status === 'bestaetigung_noetig') {
             const gebGroup = gebInput.closest('.form-group');
             const abgleichBtn = document.createElement('button');
             abgleichBtn.type = 'button';
@@ -93,6 +94,15 @@ async function loadPruefung() {
             document.getElementById('personen').value = personen.wert;
         }
         setHerkunft('pers-herkunft', personen.herkunft);
+
+        // Erinnerungen-Status (nur bei versendet)
+        const erinnerungenCheckbox = document.getElementById('erinnerungen-aktiv');
+        if (pruefungData.status === 'versendet') {
+            erinnerungenCheckbox.checked = !pruefungData.erinnerungen_aus;
+            erinnerungenCheckbox.disabled = false;
+        } else {
+            erinnerungenCheckbox.disabled = true;
+        }
 
         document.getElementById('loading').classList.add('hidden');
         document.getElementById('pruefung').classList.remove('hidden');
@@ -210,6 +220,16 @@ async function loadMailZugang() {
         const status = document.getElementById('mail-status');
         status.textContent = 'Fehler beim Laden';
         status.className = 'error-text';
+    }
+}
+
+async function saveErinnerungen() {
+    const an = document.getElementById('erinnerungen-aktiv').checked;
+
+    try {
+        await api('PUT', `/vorgaenge/${vorgangId}/erinnerungen`, {an});
+    } catch (err) {
+        showError('erinnerungen-error', err.message);
     }
 }
 
