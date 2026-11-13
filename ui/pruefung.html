@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prüfung - SignNext</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Vorgang prüfen und versenden</h1>
+        </header>
+
+        <main id="app">
+            <div id="loading" class="loading">Lade Vorgang...</div>
+
+            <div id="pruefung" class="hidden">
+                <!-- Dokument-Ansicht -->
+                <section class="card">
+                    <h2>Dokument</h2>
+                    <iframe id="pdf-viewer" style="width:100%; height:600px; border:1px solid var(--color-border);"></iframe>
+                </section>
+
+                <!-- Angaben -->
+                <section class="card">
+                    <h2>Angaben</h2>
+                    <form id="form-angaben">
+                        <div class="form-group">
+                            <label>Name <span id="name-herkunft" class="herkunft"></span></label>
+                            <div id="name-wert" class="readonly-value"></div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="geburtsdatum">Geburtsdatum (TT.MM.JJJJ) <span id="geb-herkunft" class="herkunft"></span></label>
+                            <input type="text" id="geburtsdatum" placeholder="01.01.1990" maxlength="10" pattern="\d{2}\.\d{2}\.\d{4}">
+                            <div id="geb-error" class="field-error hidden"></div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="email">E-Mail <span id="email-herkunft" class="herkunft"></span></label>
+                            <input type="email" id="email" placeholder="max@example.com">
+                            <div id="email-error" class="field-error hidden"></div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="personen">Personen <span id="pers-herkunft" class="herkunft"></span></label>
+                            <select id="personen">
+                                <option value="">Bitte wählen</option>
+                                <option value="1">1 Person</option>
+                                <option value="2">2 Personen (Ehepaar)</option>
+                            </select>
+                            <div id="pers-error" class="field-error hidden"></div>
+                        </div>
+
+                        <button type="submit" class="btn btn-secondary">Angaben speichern</button>
+                    </form>
+                </section>
+
+                <!-- Mail-Zugang -->
+                <section class="card">
+                    <h2>Mail-Zugang</h2>
+                    <div id="mail-status"></div>
+                    <a href="#mail-zugang" class="btn btn-secondary">Mail-Zugang prüfen/einrichten</a>
+                </section>
+
+                <!-- Versand -->
+                <section class="card">
+                    <h2>Versenden</h2>
+                    <div id="versand-hinweise" class="info-box"></div>
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="versand-bestaetigung">
+                            Ich bestätige, dass die Angaben geprüft sind und der Link versendet werden soll
+                        </label>
+                    </div>
+                    <div id="versand-error" class="error hidden"></div>
+                    <button id="btn-versenden" class="btn btn-primary">Zugangslink versenden</button>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <script src="pruefung.js"></script>
+</body>
+</html>
