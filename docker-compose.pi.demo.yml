@@ -1,0 +1,25 @@
+# DEMO auf dem Pi (v0.7.0): Beraterseiten ohne Portal-Login (nur Heimnetz/Tailscale), echter Mailversand über den Mail-Zugang, Empfänger nur aus der Allowlist.
+# Nur erfundene Daten, nie ins Internet stellen. Aufruf (statt nur docker-compose.pi.yaml):
+#   docker compose -f docker-compose.pi.yaml -f docker-compose.pi.demo.yml up -d --build
+# Zusätzliche Zeilen in der Datei .env (nie einchecken):
+#   SIGNNEXT_VERSAND_TESTADRESSEN   erlaubte Empfänger, Komma-Liste (weitere ohne Neustart: Datei testadressen.txt, siehe PI-DEMO.md)
+#   SIGNNEXT_DEMO_HOSTS             weitere Adressen/Namen, unter denen die Demo aufgerufen wird (z. B. die LAN-Adresse des Pi), Komma-Liste; SIGNNEXT_PI_ADRESSE gilt immer
+#   SIGNNEXT_DEMO_NETZE             nur falls das LAN in 172.16.0.0/12 liegt (CIDR, Komma-Liste); Standard: 10/8, 192.168/16, Tailscale, Loopback
+# Port 443 ist auf dem Pi durch Tailscale belegt: Der Vorsatz lauscht auf 8443.
+services:
+  signnext:
+    environment:
+      SIGNNEXT_BASIS_URL: "https://${SIGNNEXT_PI_ADRESSE:?SIGNNEXT_PI_ADRESSE fehlt (.env)}:8443"
+      SIGNNEXT_DEMO: "1"
+      SIGNNEXT_DEMO_ANMELDUNG: "offen"
+      SIGNNEXT_VERSAND: "testadressen"
+      SIGNNEXT_VERSAND_TESTADRESSEN: "${SIGNNEXT_VERSAND_TESTADRESSEN:-}"
+      SIGNNEXT_DEMO_HOSTS: "${SIGNNEXT_DEMO_HOSTS:-}"
+      SIGNNEXT_DEMO_NETZE: "${SIGNNEXT_DEMO_NETZE:-}"
+      SIGNNEXT_PROXIES: "1"
+  vorsatz:
+    ports: !override
+      - "8443:8443"
+    volumes:
+      - ./Caddyfile.pi.8443:/etc/caddy/Caddyfile:ro
+      - caddy-daten:/data

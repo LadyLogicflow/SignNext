@@ -1,0 +1,11 @@
+# Vorsatz für die Demo auf dem Pi, Port 8443 (443 ist durch Tailscale belegt): eigenes Testzertifikat, Weiterleitung an die App.
+# default_sni: Browser senden bei einer IP-Adresse kein SNI; ohne diese Zeile bricht der TLS-Handshake ab (ERR_SSL_PROTOCOL_ERROR).
+{
+	auto_https disable_redirects
+	default_sni {$SIGNNEXT_PI_ADRESSE}
+}
+
+{$SIGNNEXT_PI_ADRESSE}:8443 {
+	tls internal
+	reverse_proxy signnext:8000
+}
