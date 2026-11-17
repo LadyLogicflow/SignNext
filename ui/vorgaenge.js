@@ -3,6 +3,7 @@
 
 document.addEventListener('DOMContentLoaded', async () => {
     if (!(await Berater.bereit())) return;
+    Upload.binde({beiFertig: loadVorgaenge});
     await demoBereich();
     await loadVorgaenge();
 });

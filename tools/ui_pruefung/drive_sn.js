@@ -100,6 +100,15 @@ function api(req, res, pfad, body) {
     }
     // Berater (Portal-Anmeldung bzw. Demo)
     if (pfad === '/api/v1/me') return senden(res, cfg.me.status, cfg.me.body);
+    if (pfad === '/api/v1/vorgaenge' && m === 'POST') {
+        const antwort = cfg.upload || {status: 201, body: {vorgang_id: 2, status: 'bereit', personen: 2, abgleich: {status: 'automatisch'}, name: 'Mustermann_Steuer2025',
+            dokumente: [{rolle: 'A', seiten: 2, stellen: 0}, {rolle: 'B', seiten: 3, stellen: 2}]}};
+        const fertig = () => {
+            if (antwort.status === 201) zustand.vorgaenge.unshift({id: antwort.body.vorgang_id, status: antwort.body.status, erstellt: '2026-11-17T12:00:00Z'});
+            senden(res, antwort.status, antwort.body === undefined ? '<html>kaputt</html>' : antwort.body, antwort.body === undefined ? 'text/html' : undefined);
+        };
+        return cfg.uploadVerzoegerung ? setTimeout(fertig, cfg.uploadVerzoegerung) : fertig();
+    }
     if (pfad === '/api/v1/vorgaenge' && m === 'GET') return senden(res, 200, {vorgaenge: zustand.vorgaenge});
     if (pfad === '/api/v1/demo' && m === 'GET') return senden(res, 200, cfg.demoInfo);
     if (pfad === '/api/v1/demo/vorgang' && m === 'POST') {
@@ -133,7 +142,12 @@ const server = http.createServer((req, res) => {
         if (pfad.startsWith('/api/')) {
             let body = null;
             try { body = teile.length ? JSON.parse(Buffer.concat(teile).toString('utf8')) : null; } catch (e) { body = null; }
-            aufrufe.push({m: req.method, p: pfad, body});
+            const eintrag = {m: req.method, p: pfad, body};
+            if (String(req.headers['content-type'] || '').startsWith('multipart/form-data')) {
+                const roh = Buffer.concat(teile).toString('latin1');
+                eintrag.dateien = [...roh.matchAll(/name="dateien"; filename="([^"]*)"/g)].map(x => x[1]);
+            }
+            aufrufe.push(eintrag);
             return api(req, res, pfad, body || {});
         }
         const datei = SEITEN[pfad] || (/^\/[a-z][a-z0-9_-]*\.(js|css)$/.test(pfad) ? pfad.slice(1) : null);
@@ -223,6 +237,13 @@ async function main() {
             angemeldet: sichtbar('angemeldet') ? text('angemeldet') : null,
             portal_link: sichtbar('portal-link') ? doc.getElementById('portal-link').getAttribute('href') : null,
             menue, hinweise,
+            upload: doc.getElementById('upload-bereich') ? {
+                feld_gesperrt: doc.getElementById('upload-feld').classList.contains('gesperrt'), eingabe_gesperrt: doc.getElementById('upload-datei').disabled,
+                dateien: [...doc.querySelectorAll('#upload-dateien li > span')].map(s => s.textContent),
+                auswahlbox: sichtbar('upload-auswahlbox'), hinweis: text('upload-hinweis'), fehler: sichtbar('upload-fehler') ? text('upload-fehler') : null,
+                laeuft: sichtbar('upload-laeuft') ? {text: text('upload-laeuft-text'), wert: doc.getElementById('upload-fortschritt').getAttribute('value')} : null,
+                ergebnis: sichtbar('upload-ergebnis') ? {text: [...doc.getElementById('upload-ergebnis').children].map(c => c.textContent.replace(/\s+/g, ' ').trim()).join(' '), weiter: doc.getElementById('upload-weiter') ? doc.getElementById('upload-weiter').getAttribute('href') : null} : null,
+                drop_verhindert: zustand.dropVerhindert === true, drag_verhindert: zustand.dragStandardVerhindert === true} : null,
             banner_in_leiste: !!doc.querySelector('#hinweisleiste #demo-banner'),
             ueberschrift: doc.querySelector('h1') ? doc.querySelector('h1').textContent : null,
             banner: banner ? banner.textContent : null,
@@ -282,7 +303,7 @@ async function main() {
             pfad: win.location.pathname,
             alerts: alerts.slice(),
             zeichnung: Object.assign({}, zeichnung),
-            requests: aufrufe.slice(vor).map(a => ({m: a.m, p: a.p, body: a.body})),
+            requests: aufrufe.slice(vor).map(a => ({m: a.m, p: a.p, body: a.body, dateien: a.dateien})),
         };
     };
 
@@ -319,6 +340,24 @@ async function main() {
         if (op.op === 'uebertragen') klick('btn-uebertragen');
         if (op.op === 'neu_laden_klick') klick('btn-neu-laden');
         if (op.op === 'klick_id') klick(op.id);
+        if (op.op === 'dateien' || op.op === 'ablegen') {
+            const liste = op.dateien.map(spec => {
+                const f = new win.File(['x'.repeat(Math.min(spec.size === undefined ? 10 : spec.size, 2000))], spec.name, {type: spec.type === undefined ? 'application/pdf' : spec.type});
+                if (spec.size > 2000) Object.defineProperty(f, 'size', {value: spec.size});
+                return f;
+            });
+            if (op.op === 'dateien') {
+                const eingabe = doc.getElementById('upload-datei');
+                Object.defineProperty(eingabe, 'files', {configurable: true, value: liste});
+                eingabe.dispatchEvent(new win.Event('change', {bubbles: true}));
+            } else {
+                for (const name of ['dragenter', 'dragover']) { const e = new win.Event(name, {bubbles: true, cancelable: true}); doc.getElementById('upload-feld').dispatchEvent(e); zustand.dragStandardVerhindert = e.defaultPrevented; }
+                const drop = new win.Event('drop', {bubbles: true, cancelable: true});
+                drop.dataTransfer = {files: liste};
+                doc.getElementById('upload-feld').dispatchEvent(drop);
+                zustand.dropVerhindert = drop.defaultPrevented;
+            }
+        }
         if (op.op === 'wert_id') { const e = doc.getElementById(op.id); e.value = op.wert; e.dispatchEvent(new win.Event('input', {bubbles: true})); e.dispatchEvent(new win.Event('change', {bubbles: true})); }
         if (op.op === 'submit_id') doc.getElementById(op.id).dispatchEvent(new win.Event('submit', {bubbles: true, cancelable: true}));
         if (op.op === 'klick_sel') doc.querySelector(op.sel).click();

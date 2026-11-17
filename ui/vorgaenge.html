@@ -27,6 +27,31 @@
         <div id="hinweisleiste"></div>
 
         <main id="app">
+            <section id="upload-bereich" class="card" aria-labelledby="upload-titel">
+                <h2 id="upload-titel">Neuen Vorgang anlegen</h2>
+                <label id="upload-feld" class="upload-feld" for="upload-datei">
+                    <span class="upload-symbol" aria-hidden="true">⇪</span>
+                    <span class="upload-gross">PDF hier ablegen</span>
+                    <span>Steuerprotokoll und Anschreiben – oder <span class="upload-auswahl">Dateien auswählen</span></span>
+                    <input id="upload-datei" type="file" accept="application/pdf,.pdf" multiple>
+                </label>
+                <p class="upload-regeln">Nur PDF · bis 15 MB · bis 30 Seiten · 1 bis 2 Dateien je Vorgang. Der Dateiname wird als Name des Vorgangs angezeigt. Weitere Vorgänge legen Sie danach einfach nacheinander an.</p>
+                <div id="upload-fehler" class="error hidden" role="alert"></div>
+                <div id="upload-auswahlbox" class="hidden">
+                    <ul id="upload-dateien" class="upload-dateien"></ul>
+                    <p id="upload-hinweis" class="upload-regeln"></p>
+                    <div class="upload-aktionen">
+                        <button id="btn-upload" type="button" class="btn btn-primary">Vorgang anlegen</button>
+                        <button id="btn-upload-leeren" type="button" class="btn btn-secondary">Abbrechen</button>
+                    </div>
+                </div>
+                <div id="upload-laeuft" class="hidden" role="status">
+                    <p id="upload-laeuft-text"></p>
+                    <progress id="upload-fortschritt" class="upload-fortschritt" max="100" value="0"></progress>
+                </div>
+                <div id="upload-ergebnis" class="upload-ergebnis hidden" role="status"></div>
+            </section>
+
             <section id="demo-bereich" class="card hidden">
                 <h2>Demo</h2>
                 <p>Alle Daten sind erfunden. Hier können Sie Beispieldokumente laden und einen fertigen Demo-Vorgang anlegen.</p>
@@ -47,6 +72,7 @@
     <script src="qrbild.js"></script>
     <script src="wortmarke.js"></script>
     <script src="berater.js"></script>
+    <script src="upload.js"></script>
     <script src="vorgaenge.js"></script>
 </body>
 </html>
