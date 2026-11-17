@@ -68,9 +68,15 @@ class TestUploadWeg(unittest.TestCase):
         self.assertEqual(uploads(o["schritte"][1]), [])
 
     def test_ohne_name_vom_server_wird_nichts_geraten(self):
-        antwort = {"status": 201, "body": {"vorgang_id": 9, "status": "bereit", "personen": 1, "dokumente": [{"rolle": "B", "seiten": 2, "stellen": 1}]}}
+        antwort = {"status": 201, "body": {"vorgang_id": 9, "status": "bereit", "personen": 1, "dokumente": [{"rolle": "A", "seiten": 2, "stellen": 1}]}}
         o = lauf(seite="/vorgaenge", api={"upload": antwort}, ops=[{"op": "dateien", "dateien": [PDF_B], "warte": 200}, {"op": "klick_id", "id": "btn-upload", "warte": 600}])
         self.assertEqual(up(o["schritte"][1])["ergebnis"]["text"], "Vorgang 9 wurde angelegt. Erkannt: Steuerprotokoll ✓ · 1 Unterschrift Weiter: Angaben prüfen")
+
+    def test_dokumenttypen_richtig_benannt_typ_a_ist_das_protokoll_typ_b_das_anschreiben(self):
+        for rollen, erwartet in ((["A"], "Erkannt: Steuerprotokoll ✓"), (["B"], "Erkannt: Anschreiben ✓"), (["A", "B"], "Erkannt: Anschreiben ✓ · Steuerprotokoll ✓"), (["B", "A"], "Erkannt: Anschreiben ✓ · Steuerprotokoll ✓")):
+            antwort = {"status": 201, "body": {"vorgang_id": 4, "status": "bereit", "personen": 2, "name": "X", "dokumente": [{"rolle": r} for r in rollen]}}
+            o = lauf(seite="/vorgaenge", api={"upload": antwort}, ops=[{"op": "dateien", "dateien": [PDF_A], "warte": 200}, {"op": "klick_id", "id": "btn-upload", "warte": 500}])
+            self.assertIn(erwartet + " · 2 Unterschriften", up(o["schritte"][1])["ergebnis"]["text"], rollen)
 
     def test_abweichung_zwischen_den_dokumenten_wird_gesagt(self):
         antwort = {"status": 201, "body": {"vorgang_id": 3, "status": "bestaetigung_noetig", "personen": 2, "dokumente": [{"rolle": "A"}, {"rolle": "B"}], "name": "Muster"}}

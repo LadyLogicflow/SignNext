@@ -15,7 +15,9 @@
         kein_pdf: 'Das ist keine PDF-Datei.',
         keine_textebene: 'Die PDF-Datei enthält keinen Text (vermutlich ein Scan). Bitte erzeugen Sie die Datei direkt aus der Steuersoft bzw. Textverarbeitung als PDF.'
     };
-    const ROLLEN = {A: 'Anschreiben', B: 'Steuerprotokoll'};
+    // Typ aus dem Backend (pdf_analyse): B = Anschreiben/Vollständigkeitserklärung, A = Steuersoft-Protokoll. Anzeige immer zuerst das Anschreiben.
+    const ROLLEN = {B: 'Anschreiben', A: 'Steuerprotokoll'};
+    const ROLLEN_REIHE = ['B', 'A'];
 
     let auswahl = [];
     let laeuft = false;
@@ -133,7 +135,8 @@
         const name = typeof antwort.name === 'string' && antwort.name ? `„${antwort.name}“` : `Vorgang ${antwort.vorgang_id}`;
         titel.textContent = `${name} wurde angelegt.`;
         box.appendChild(titel);
-        const rollen = (antwort.dokumente || []).map(d => ROLLEN[d.rolle]).filter(Boolean);
+        const vorhanden = (antwort.dokumente || []).map(d => d.rolle);
+        const rollen = ROLLEN_REIHE.filter(r => vorhanden.includes(r)).map(r => ROLLEN[r]);
         const zeile = document.createElement('p');
         const teile = [];
         if (rollen.length) teile.push('Erkannt: ' + rollen.map(r => r + ' ✓').join(' · '));

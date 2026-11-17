@@ -61,10 +61,26 @@
                 <div id="demo-ergebnis" class="info-box hidden"></div>
             </section>
 
-            <div id="loading" class="loading">Lade Vorgänge...</div>
+            <div id="loading" class="loading">Lade Vorgänge …</div>
 
-            <div id="vorgaenge" class="hidden">
-                <div id="vorgaenge-liste"></div>
+            <div id="uebersicht" class="hidden">
+                <div id="karten" class="karten-raster"></div>
+                <div id="liste-meldung" class="liste-meldung hidden" role="status"></div>
+                <section id="leer-hinweis" class="card hidden">
+                    <h2>Noch kein Vorgang</h2>
+                    <p class="upload-regeln">Legen Sie oben Ihre PDFs ab – wir führen Sie dann Schritt für Schritt durch. So einfach geht es:</p>
+                    <ol class="schritte-kurz">
+                        <li><strong>1 · Hochladen</strong><span>PDFs ablegen. Anschreiben und Steuerprotokoll erkennen wir selbst.</span></li>
+                        <li><strong>2 · Prüfen</strong><span>Angaben ansehen, E-Mail und Geburtsdatum bestätigen.</span></li>
+                        <li><strong>3 · Senden</strong><span>Per E-Mail – oder vor Ort per QR-Code.</span></li>
+                        <li><strong>4 · Abholen</strong><span>Unterschriebenes PDF und Nachweis herunterladen.</span></li>
+                    </ol>
+                </section>
+                <section id="listen-karte" class="card hidden" aria-labelledby="liste-titel">
+                    <h2 id="liste-titel">Ihre Vorgänge</h2>
+                    <div id="filter" class="filter" role="group" aria-label="Ansicht filtern"></div>
+                    <div id="vorgaenge-liste" role="list"></div>
+                </section>
             </div>
         </main>
     </div>

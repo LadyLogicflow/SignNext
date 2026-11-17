@@ -360,6 +360,248 @@ body.berater .upload-ergebnis p {
     margin-top: 4px;
 }
 
+/* Übersicht: Karten, Filter, Liste */
+body.berater .karten-raster {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    margin-bottom: 14px;
+}
+
+body.berater .karte-zahl {
+    display: block;
+    padding: 16px 20px;
+    text-align: left;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    font: inherit;
+    color: var(--ink);
+    cursor: pointer;
+}
+
+body.berater .karte-zahl[aria-pressed="true"] {
+    border: 2px solid var(--lime-600);
+    padding: 15px 19px;
+}
+
+body.berater .karte-titel {
+    display: block;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--navy-900);
+}
+
+body.berater .karte-wert {
+    display: block;
+    font-family: 'Archivo Black', Inter, sans-serif;
+    font-size: 34px;
+    line-height: 1.2;
+    color: var(--navy-900);
+}
+
+body.berater .karte-unter {
+    display: block;
+    font-size: 13px;
+    color: var(--ink-soft);
+}
+
+body.berater .liste-meldung {
+    margin-bottom: 14px;
+    padding: 12px 16px;
+    background: #f0fdf4;
+    border: 1px solid #86efac;
+    border-radius: 10px;
+    color: #166534;
+}
+
+body.berater .liste-meldung.error {
+    background: #fef2f2;
+    border-color: #fca5a5;
+    color: #991b1b;
+}
+
+body.berater .filter {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 14px;
+}
+
+body.berater .filter-knopf {
+    min-height: 44px;
+    padding: 6px 14px;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    font: 600 13px Inter, system-ui, sans-serif;
+    color: var(--navy-900);
+    cursor: pointer;
+}
+
+body.berater .filter-knopf[aria-pressed="true"] {
+    background: var(--navy-900);
+    border-color: var(--navy-900);
+    color: #fff;
+}
+
+body.berater .filter-rechts {
+    margin-left: auto;
+}
+
+body.berater .zeile {
+    display: grid;
+    grid-template-columns: 1.6fr 1.5fr 0.8fr auto;
+    gap: 12px;
+    align-items: center;
+    padding: 14px 4px;
+    border-top: 1px solid var(--line);
+}
+
+body.berater .zeile-name {
+    font-weight: 700;
+    color: var(--navy-900);
+    overflow-wrap: anywhere;
+}
+
+body.berater .zeile-sub {
+    font-size: 13px;
+    color: var(--ink-soft);
+}
+
+body.berater .zeile-aktion {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    justify-content: flex-end;
+}
+
+body.berater .zeile-fehler {
+    grid-column: 1 / -1;
+    margin: 0;
+}
+
+body.berater .btn-klein {
+    min-height: 44px;
+    padding: 6px 14px;
+    font-size: 14px;
+}
+
+body.berater .btn-gefahr {
+    background: #b91c1c;
+    border-color: #b91c1c;
+    color: #fff;
+}
+
+body.berater .btn-gefahr::after {
+    content: none;
+}
+
+body.berater .pille {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+body.berater .p-sie { background: #fef3c7; color: #78350f; }
+body.berater .p-mitglied { background: var(--navy-100); color: var(--navy-500); }
+body.berater .p-fertig { background: #dcfce7; color: #166534; }
+body.berater .p-problem { background: #fee2e2; color: #991b1b; }
+body.berater .p-grau { background: #e5e7eb; color: #374151; }
+
+body.berater .mehr {
+    position: relative;
+}
+
+body.berater .mehr summary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-weight: 700;
+    color: var(--navy-900);
+    cursor: pointer;
+    list-style: none;
+}
+
+body.berater .mehr-menue {
+    position: absolute;
+    right: 0;
+    top: 48px;
+    z-index: 2;
+    min-width: 210px;
+    padding: 6px;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+}
+
+body.berater .mehr-eintrag {
+    display: block;
+    width: 100%;
+    min-height: 44px;
+    padding: 8px 10px;
+    background: none;
+    border: none;
+    border-radius: 6px;
+    text-align: left;
+    font: 600 14px Inter, system-ui, sans-serif;
+    color: var(--navy-900);
+    cursor: pointer;
+}
+
+body.berater .mehr-eintrag:hover {
+    background: var(--navy-100);
+}
+
+body.berater .mehr-gefahr {
+    color: #b91c1c;
+}
+
+body.berater .rueckfrage {
+    flex: 1 1 260px;
+    padding: 10px 12px;
+    background: #fef2f2;
+    border: 1px solid #fca5a5;
+    border-radius: 8px;
+    text-align: left;
+    font-size: 14px;
+}
+
+body.berater .rueckfrage .knopf-zeile {
+    margin-top: 8px;
+}
+
+body.berater .liste-leer {
+    padding: 14px 4px;
+    color: var(--ink-soft);
+}
+
+body.berater .schritte-kurz {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    list-style: none;
+}
+
+body.berater .schritte-kurz li strong,
+body.berater .schritte-kurz li span {
+    display: block;
+}
+
+body.berater .schritte-kurz li span {
+    font-size: 13px;
+    color: var(--ink-soft);
+}
+
 /* Knöpfe nebeneinander, auf schmalen Bildschirmen umbrechen statt überlaufen */
 body.berater .knopf-zeile {
     display: flex;
@@ -373,4 +615,8 @@ body.berater .knopf-zeile {
     body.berater .container { padding: 18px 12px 64px; }
     body.berater h1 { font-size: 26px; }
     body.berater .menue a { flex: 1 1 auto; justify-content: center; }
+    body.berater .karten-raster,
+    body.berater .schritte-kurz { grid-template-columns: 1fr; }
+    body.berater .zeile { grid-template-columns: 1fr; gap: 6px; }
+    body.berater .zeile-aktion { justify-content: flex-start; margin-top: 4px; }
 }

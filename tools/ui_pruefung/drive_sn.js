@@ -36,7 +36,8 @@ const cfg = Object.assign({
     mailZugang: {konfiguriert: true, geprueft_am: '2026-11-01T10:00:00Z', host: 'smtp.example', port: 587, benutzer: 'konto', absender_name: 'Beratungsstelle', absender_adresse: 'noreply@example.org', bcc_an_absender: false},
     mailPut: {status: 200, body: {ok: true}},
 }, arg.api || {});
-const zustand = {person: 1, unterschrieben: [], handoffAbfragen: 0, abgeholt: false, handoffNummer: 0, vorgaenge: [{id: 1, status: 'bereit', erstellt: '2026-11-17T10:00:00Z'}]};
+const STANDARD_LISTE = [{id: 1, status: 'bereit', erstellt: '2026-11-17T10:00:00Z', name: 'Mustermann_Steuer2025', personen: 2, link_status: null, link_laeuft_ab: null}];
+const zustand = {person: 1, unterschrieben: [], handoffAbfragen: 0, abgeholt: false, handoffNummer: 0, downloads: [], vorgaenge: JSON.parse(JSON.stringify(cfg.vorgaenge || STANDARD_LISTE))};
 const aufrufe = [];
 
 function senden(res, status, obj, typ) {
@@ -109,7 +110,24 @@ function api(req, res, pfad, body) {
         };
         return cfg.uploadVerzoegerung ? setTimeout(fertig, cfg.uploadVerzoegerung) : fertig();
     }
-    if (pfad === '/api/v1/vorgaenge' && m === 'GET') return senden(res, 200, {vorgaenge: zustand.vorgaenge});
+    if (pfad === '/api/v1/vorgaenge' && m === 'GET') {
+        if (cfg.listeFehler) return cfg.listeFehler.body === undefined ? senden(res, cfg.listeFehler.status, '<html>kaputt</html>', 'text/html') : senden(res, cfg.listeFehler.status, cfg.listeFehler.body);
+        return senden(res, 200, {vorgaenge: zustand.vorgaenge, status_texte: cfg.statusTexte || {bereit: 'Bereit zum Versand', neu_vom_server: 'Neuer Wert vom Server'}});
+    }
+    let treffer = /^\/api\/v1\/vorgaenge\/(\d+)$/.exec(pfad);
+    if (treffer && m === 'DELETE') {
+        const antwort = cfg.loeschen || {status: 200, body: {ok: true}};
+        if (antwort.status === 200) zustand.vorgaenge = zustand.vorgaenge.filter(v => v.id !== Number(treffer[1]));
+        return senden(res, antwort.status, antwort.body);
+    }
+    treffer = /^\/api\/v1\/vorgaenge\/(\d+)\/neuer-link$/.exec(pfad);
+    if (treffer && m === 'POST') {
+        const antwort = cfg.neuerLink || {status: 200, body: {ok: true}};
+        if (antwort.status === 200) zustand.vorgaenge = zustand.vorgaenge.map(v => v.id === Number(treffer[1]) ? Object.assign({}, v, {link_status: 'aktiv', link_laeuft_ab: new Date(Date.now() + 7 * 86400000).toISOString()}) : v);
+        return senden(res, antwort.status, antwort.body);
+    }
+    treffer = /^\/api\/v1\/vorgaenge\/(\d+)\/download\/(dokument|nachweis)$/.exec(pfad);
+    if (treffer && m === 'GET') return cfg.downloadFehler ? senden(res, cfg.downloadFehler.status, cfg.downloadFehler.body) : senden(res, 200, '%PDF-1.4 test', 'application/pdf');
     if (pfad === '/api/v1/demo' && m === 'GET') return senden(res, 200, cfg.demoInfo);
     if (pfad === '/api/v1/demo/vorgang' && m === 'POST') {
         const id = 7 + zustand.vorgaenge.length;
@@ -168,6 +186,13 @@ async function main() {
     const dom = await JSDOM.fromURL(BASE + arg.seite + (arg.fragment || ''), {
         runScripts: 'dangerously', resources: 'usable', pretendToBeVisual: true, virtualConsole: vc,
         beforeParse(win) {
+            win.URL.createObjectURL = () => 'blob:test';
+            win.URL.revokeObjectURL = () => {};
+            const echtesKlick = win.HTMLAnchorElement.prototype.click;
+            win.HTMLAnchorElement.prototype.click = function () {                 // Download-Verweise nur mitschreiben (jsdom navigiert nicht)
+                if (this.hasAttribute('download')) { zustand.downloads.push(this.getAttribute('download')); return; }
+                return echtesKlick.call(this);
+            };
             win.fetch = async (u, o = {}) => {
                 const url = new URL(u, BASE);
                 const headers = Object.assign({}, o.headers || {});
@@ -231,12 +256,30 @@ async function main() {
         const wm = doc.querySelector('#wortmarke svg');
         const menue = [...doc.querySelectorAll('#berater-nav a')].map(a => ({text: a.textContent.trim(), href: a.getAttribute('href'), aktuell: a.getAttribute('aria-current') === 'page'}));
         const hinweise = [...doc.querySelectorAll('#hinweisleiste .hinweis')].map(h => ({text: h.querySelector('.hinweis-text').textContent.trim(), knopf: h.querySelector('a').textContent.trim(), href: h.querySelector('a').getAttribute('href')}));
-        const karten = doc.querySelectorAll('#vorgaenge-liste .card').length;
+        const karten = doc.querySelectorAll('#vorgaenge-liste .zeile').length;
         return {
             wortmarke: wm ? {titel: (wm.querySelector('title') || {}).textContent, farben: [...wm.querySelectorAll('[fill],[stroke]')].map(e => e.getAttribute('fill') || e.getAttribute('stroke')).filter((f, i, l) => l.indexOf(f) === i).sort()} : null,
             angemeldet: sichtbar('angemeldet') ? text('angemeldet') : null,
             portal_link: sichtbar('portal-link') ? doc.getElementById('portal-link').getAttribute('href') : null,
             menue, hinweise,
+            uebersicht: doc.getElementById('uebersicht') && sichtbar('uebersicht') ? {
+                karten: [...doc.querySelectorAll('#karten .karte-zahl')].map(k => ({titel: k.querySelector('.karte-titel').textContent, zahl: k.querySelector('.karte-wert').textContent, gedrueckt: k.getAttribute('aria-pressed')})),
+                filter: [...doc.querySelectorAll('#filter .filter-knopf')].map(f => ({text: f.textContent, gedrueckt: f.getAttribute('aria-pressed')})),
+                meldung: sichtbar('liste-meldung') ? {text: text('liste-meldung'), rolle: doc.getElementById('liste-meldung').getAttribute('role'), fehler: doc.getElementById('liste-meldung').classList.contains('error')} : null,
+                leer_hinweis: sichtbar('leer-hinweis'), listen_karte: sichtbar('listen-karte'),
+                leer_in_liste: doc.querySelector('#vorgaenge-liste .liste-leer') ? doc.querySelector('#vorgaenge-liste .liste-leer').textContent : null,
+                zeilen: [...doc.querySelectorAll('#vorgaenge-liste .zeile')].map(z => ({
+                    id: z.dataset.id, name: z.querySelector('.zeile-name').textContent, sub: z.querySelector('.zeile-sub').textContent,
+                    pille: z.querySelector('.pille').textContent, pille_klasse: z.querySelector('.pille').className.replace('pille ', ''),
+                    zusatz: z.querySelectorAll('.zeile > div:nth-child(2) .zeile-sub')[0] ? z.querySelectorAll('.zeile > div:nth-child(2) .zeile-sub')[0].textContent : null,
+                    personen: z.querySelector('.zeile > div:nth-child(3)').textContent,
+                    haupt: z.querySelector('.zeile-aktion > a, .zeile-aktion > button.btn') ? {text: z.querySelector('.zeile-aktion > a, .zeile-aktion > button.btn').textContent, href: z.querySelector('.zeile-aktion > a') ? z.querySelector('.zeile-aktion > a').getAttribute('href') : null,
+                        primaer: z.querySelector('.zeile-aktion > a, .zeile-aktion > button.btn').classList.contains('btn-primary')} : null,
+                    menue: [...z.querySelectorAll('.mehr-eintrag')].map(b => b.textContent),
+                    rueckfrage: z.querySelector('.rueckfrage') ? z.querySelector('.rueckfrage p').textContent : null,
+                    rueckfrage_knoepfe: [...z.querySelectorAll('.rueckfrage button')].map(b => b.textContent),
+                    fehler: z.querySelector('.zeile-fehler') ? z.querySelector('.zeile-fehler').textContent : null})),
+                downloads: zustand.downloads.slice()} : null,
             upload: doc.getElementById('upload-bereich') ? {
                 feld_gesperrt: doc.getElementById('upload-feld').classList.contains('gesperrt'), eingabe_gesperrt: doc.getElementById('upload-datei').disabled,
                 dateien: [...doc.querySelectorAll('#upload-dateien li > span')].map(s => s.textContent),
@@ -340,6 +383,11 @@ async function main() {
         if (op.op === 'uebertragen') klick('btn-uebertragen');
         if (op.op === 'neu_laden_klick') klick('btn-neu-laden');
         if (op.op === 'klick_id') klick(op.id);
+        if (op.op === 'klick_text') {                                          // Knopf/Eintrag mit genau diesem Text innerhalb der Auswahl
+            const ziel = [...doc.querySelectorAll(op.sel)].find(e => e.textContent.trim() === op.text);
+            if (!ziel) throw new Error('klick_text: nichts gefunden: ' + op.sel + ' / ' + op.text);
+            ziel.click();
+        }
         if (op.op === 'dateien' || op.op === 'ablegen') {
             const liste = op.dateien.map(spec => {
                 const f = new win.File(['x'.repeat(Math.min(spec.size === undefined ? 10 : spec.size, 2000))], spec.name, {type: spec.type === undefined ? 'application/pdf' : spec.type});
