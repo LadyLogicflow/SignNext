@@ -149,6 +149,7 @@ class TestSchutzwaechterUI(unittest.TestCase):
                 for m in re.finditer(muster, text):
                     zeile = text[:m.start()].count("\n") + 1
                     ausnahme = "startsWith('https://')" in text.splitlines()[zeile - 1] or "'Muss mit https://" in text.splitlines()[zeile - 1]
+                    ausnahme = ausnahme or (datei.name == "qrbild.js" and "'http://www.w3.org/2000/svg'" in text.splitlines()[zeile - 1])      # nur der XML-Namensraum, nie ein Abruf
                     self.assertTrue(ausnahme, "%s:%d %s" % (datei.name, zeile, muster))
 
     def test_kein_token_in_speicher_oder_adresse(self):

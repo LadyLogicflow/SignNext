@@ -6,7 +6,8 @@ from urllib.parse import unquote
 from ui_hilfen import BEREIT, HINWEIS, lauf
 
 DEMO = {"status": 200, "body": {"email": "demo@example.org", "demo": True, "demo_banner": "DEMO – Testdaten, keine echten Personendaten"}}
-QR_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="#000"/></svg>'
+QR_SVG = '<svg viewBox="0 0 10 10"><title>QR-Code</title><rect width="10" height="10" fill="#000"/></svg>'                      # wie das Backend: ohne Namensraum
+QR_ALS_BILD = QR_SVG.replace("<svg", '<svg xmlns="http://www.w3.org/2000/svg"', 1)                                               # so wird er als Bild gezeigt (sonst zeichnet ihn der Browser nicht)
 SEITEN = ["/vorgaenge", "/einstellungen", "/pruefung?id=1", "/mail-zugang"]
 
 
@@ -59,7 +60,7 @@ class TestDemoVorgaenge(unittest.TestCase):
         ergebnis = neu["berater"]["demo_ergebnis"]
         self.assertEqual((ergebnis["link"], ergebnis["link_nur_lesen"]), ("https://sn.example/u#demo8", True))
         self.assertEqual(ergebnis["qr"]["tag"], "IMG")                                             # Link auch als QR (qr_svg vom Server)
-        self.assertEqual(unquote(ergebnis["qr"]["src"].split(",", 1)[1]), QR_SVG)
+        self.assertEqual(unquote(ergebnis["qr"]["src"].split(",", 1)[1]), QR_ALS_BILD)
         self.assertIn("Demo-Vorgang 8 angelegt", ergebnis["text"])
         self.assertIn("Geburtsdatum 01.02.1960", ergebnis["text"])
         self.assertIn("Eingabe: 010260", ergebnis["text"])
@@ -128,7 +129,7 @@ class TestDemoVersenden(unittest.TestCase):
         self.assertEqual((box["link"], box["link_nur_lesen"]), ("https://sn.example/u#abc", True))
         self.assertIn("Geburtsdatum für den Link: 01.02.60", box["text"])
         self.assertEqual(box["qr"]["tag"], "IMG")
-        self.assertEqual(unquote(box["qr"]["src"].split(",", 1)[1]), QR_SVG)                      # nur als Bild, nie als Markup
+        self.assertEqual(unquote(box["qr"]["src"].split(",", 1)[1]), QR_ALS_BILD)                      # nur als Bild, nie als Markup
         self.assertIn("Link wurde versendet!", o["schritte"][1]["zustand"]["alerts"])             # die bisherige Bestätigung bleibt
 
     def test_ohne_demo_feld_keine_box(self):
@@ -152,7 +153,7 @@ class TestDemoVersenden(unittest.TestCase):
         b = danach["zustand"]["berater"]
         self.assertEqual(b["versand_box"]["link"], "https://sn.example/u#ohne")
         self.assertIn("(ohne Mail)", b["versand_box"]["text"])
-        self.assertEqual(unquote(b["versand_box"]["qr"]["src"].split(",", 1)[1]), QR_SVG)
+        self.assertEqual(unquote(b["versand_box"]["qr"]["src"].split(",", 1)[1]), QR_ALS_BILD)
         self.assertIsNone(b["ohne_mail"])                                                          # Angebot verschwindet
         self.assertIsNone(b["versand_fehler"])
         self.assertIn("Ohne Mail freigegeben", b["versand_hinweise"])

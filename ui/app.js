@@ -257,8 +257,9 @@ function handyAnzeigen(an) {
 
 function qrBild(svg) {
     const img = document.getElementById('handy-qr');
-    if (typeof svg === 'string' && svg.trim().startsWith('<svg')) {
-        img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);       // als Bild, nie als Markup eingefügt
+    const adresse = QrBild.adresse(svg);
+    if (adresse) {
+        img.src = adresse;                                                              // als Bild, nie als Markup eingefügt
         img.classList.remove('hidden');
     } else {
         img.removeAttribute('src');

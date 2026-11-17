@@ -6,7 +6,7 @@ from urllib.parse import unquote
 from ui_hilfen import BEREIT, HINWEIS, lauf
 
 PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
-QR_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="#000"/></svg>'
+QR_SVG = '<svg viewBox="0 0 10 10"><title>QR-Code</title><rect width="10" height="10" fill="#000"/></svg>'                      # wie das Backend (segno): ohne Namensraum
 SATZ = "Sie können am Computer mit der Maus oder am Smartphone oder Tablet mit dem Finger unterschreiben."
 STRICH = [[10, 10], [50, 30], [90, 10]]
 
@@ -102,7 +102,7 @@ class TestHandyUebergabe(unittest.TestCase):
         self.assertFalse(z["zeichenfeld_sichtbar"])
         self.assertEqual((z["qr"]["tag"], z["qr"]["sichtbar"]), ("IMG", True))
         self.assertTrue(z["qr"]["src"].startswith("data:image/svg+xml;charset=utf-8,"))
-        self.assertEqual(unquote(z["qr"]["src"].split(",", 1)[1]), QR_SVG)                      # das SVG kommt unverändert als Bild
+        self.assertEqual(unquote(z["qr"]["src"].split(",", 1)[1]), QR_SVG.replace("<svg", '<svg xmlns="http://www.w3.org/2000/svg"', 1))   # als Bild, mit ergänztem Namensraum
         self.assertIn("QR-Code", z["handy_status"])
         self.assertRegex(z["handy_rest"], r"^Noch \d+:\d\d Minuten gültig\.$")
         self.assertEqual(z["alerts"], [])

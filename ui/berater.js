@@ -72,8 +72,7 @@
     }
 
     function qrAlsDatenAdresse(svg) {
-        if (typeof svg !== 'string' || !svg.trim().startsWith('<svg')) return null;
-        return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);            // als Bild, nie als Markup eingefügt
+        return QrBild.adresse(svg);                                                      // ergänzt den SVG-Namensraum, den das Backend weglässt
     }
 
     function kopieren(text, knopf) {

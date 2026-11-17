@@ -9,7 +9,7 @@ const arg = JSON.parse(process.argv[2]);
 const UI = path.resolve(__dirname, '..', '..', 'ui');
 const SEITEN = {'/u': 'unterschrift.html', '/h': 'handy.html', '/vorgaenge': 'vorgaenge.html', '/einstellungen': 'einstellungen.html', '/pruefung': 'pruefung.html', '/mail-zugang': 'mail-zugang.html'};
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
-const QR_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="#000"/></svg>';
+const QR_SVG = '<svg viewBox="0 0 10 10"><title>QR-Code</title><rect width="10" height="10" fill="#000"/></svg>';        // wie das Backend: ohne Namensraum
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const extern = !!arg.basis;           // Modus mit echtem Server (arg.basis, arg.cookie): kein nachgespielter Server, die Aufrufe werden nur mitgeschrieben
 
