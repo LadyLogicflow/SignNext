@@ -1,11 +1,11 @@
 // SignNext Zeichenfeld, gemeinsam für die Unterschriftsseite (/u) und die Handy-Seite (/h) - CSP 'self' konform, keine Inline-Skripte.
-// Verhalten wie in BookNext: Pointer Events (Maus, Stift, Finger), roter Hinweis "Bitte hier unterschreiben." bis gezeichnet, "löschen",
+// Verhalten wie in BookNext (Strich 3 px, in der PDF-Stelle sonst zu dünn): Pointer Events (Maus, Stift, Finger), roter Hinweis "Bitte hier unterschreiben." bis gezeichnet, "löschen",
 // leeres Antippen zählt nicht. Es wird nur das Bild weitergegeben (PNG), nie Druck, Geschwindigkeit oder Strichverlauf.
 'use strict';
 
 (function () {
     const STRICHFARBE = '#0b2545';
-    const STRICHBREITE = 2;
+    const STRICHBREITE = 3;
 
     // wurzel enthält .zeichenfeld-canvas, .zeichenfeld-leeren und .zeichenfeld-fehlt (siehe unterschrift.html und handy.html)
     function binde(wurzel, optionen) {

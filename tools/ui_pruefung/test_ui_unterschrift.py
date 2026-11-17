@@ -42,7 +42,7 @@ class TestZeichenfeld(unittest.TestCase):
         gezeichnet = o["schritte"][6]["zustand"]
         self.assertIsNone(gezeichnet["fehlt"])                                                  # Hinweis weg, sobald ein Strich gezogen ist
         self.assertEqual(gezeichnet["zeichnung"]["striche"], 2)
-        self.assertEqual(gezeichnet["zeichnung"]["stil"], {"breite": 2, "farbe": "#0b2545", "cap": "round", "join": "round"})
+        self.assertEqual(gezeichnet["zeichnung"]["stil"], {"breite": 3, "farbe": "#0b2545", "cap": "round", "join": "round"})
         self.assertGreaterEqual(gezeichnet["zeichnung"]["capture"], 1)                          # Pointer Events mit Capture
         self.assertIsNone(gezeichnet["fehler_unterschrift"])
         geleert = o["schritte"][7]["zustand"]
