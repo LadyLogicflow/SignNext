@@ -66,7 +66,14 @@ def neuer_link(mandant_ref: str, vorgang_id: int, nutzer: str) -> dict:
     return _senden(mandant_ref, vorgang_id, nutzer, neu=True)
 
 
-def _senden(mandant_ref: str, vorgang_id: int, nutzer: str, neu: bool) -> dict:
+def versenden_demo_ohne_mail(mandant_ref: str, vorgang_id: int, nutzer: str) -> dict:
+    """Nur Demo (catrin #19330): wie ``versenden``, aber ohne Mailserver; der Link steht in der Antwort (``demo_link``) und wird am Bildschirm gezeigt (Fallback, wenn die Mail scheitert)."""
+    if not config.demo_aktiv():
+        raise Fehler("nicht_gefunden", 404)
+    return _senden(mandant_ref, vorgang_id, nutzer, neu=False, demo_ohne_mail=True)
+
+
+def _senden(mandant_ref: str, vorgang_id: int, nutzer: str, neu: bool, demo_ohne_mail: bool = False) -> dict:
     v = db.vorgang_intern(mandant_ref, vorgang_id)
     if v is None:
         raise Fehler("nicht_gefunden", 404)
@@ -91,10 +98,11 @@ def _senden(mandant_ref: str, vorgang_id: int, nutzer: str, neu: bool) -> dict:
     if config.hauptschluessel() is None:
         raise Fehler("nicht_bereit", 503)
     zsicht = mail_zugang.sicht(mandant_ref)
-    if not zsicht["konfiguriert"]:
-        raise Fehler("mail_zugang_fehlt")
-    if not zsicht.get("geprueft_am"):
-        raise Fehler("mail_zugang_ungeprueft")
+    if not demo_ohne_mail:
+        if not zsicht["konfiguriert"]:
+            raise Fehler("mail_zugang_fehlt")
+        if not zsicht.get("geprueft_am"):
+            raise Fehler("mail_zugang_ungeprueft")
     if db.stelle_einstellung_lesen(mandant_ref) is None:
         raise Fehler("stelleneinstellungen_fehlen")
     seit = _zeit(datetime.now(timezone.utc) - timedelta(hours=1))
@@ -106,7 +114,7 @@ def _senden(mandant_ref: str, vorgang_id: int, nutzer: str, neu: bool) -> dict:
     fehlt = pruefung.fehlend(e)
     if fehlt:
         raise Fehler("angaben_fehlen", 409, fehlt)
-    if config.versand_modus() == "testadressen" and e["email"] not in config.versand_testadressen():
+    if not demo_ohne_mail and config.versand_modus() == "testadressen" and e["email"] not in config.versand_testadressen():
         raise Fehler("empfaenger_nicht_freigegeben")
     erst = v["gezaehlt_am"] is None                                      # erster Versand dieses Vorgangs: wird gezählt, ggf. am Kontingent gesperrt
     anspruch = tarif.beanspruchen(mandant_ref, vorgang_id, ausgang)
@@ -121,35 +129,38 @@ def _senden(mandant_ref: str, vorgang_id: int, nutzer: str, neu: bool) -> dict:
         # token_enc: wiederherstellbares Token nur für die Erinnerungen; wird bei Unterschrift, Sperre, Ablauf und Storno sofort gelöscht (db.token_entziehen).
         c.execute("INSERT INTO link(vorgang_id, mandant_ref, token_hash, erstellt, laeuft_ab, token_enc) VALUES (?,?,?,?,?,?)",
                   (int(vorgang_id), mandant_ref, token_hash, _zeit(jetzt), _zeit(laeuft_ab), schluessel.verschluesseln(mandant_ref, "link-token", token)))
-    try:
-        zugang = mail_zugang.fuer_dienst(mandant_ref, "versand", nutzer)
-    except schluessel.Entschluesselung:
-        _zurueck(mandant_ref, vorgang_id, token_hash, "mail_zugang_nicht_lesbar", ausgang, erst)
-        raise Fehler("mail_zugang_nicht_lesbar", 503)
-    except Exception:
-        _zurueck(mandant_ref, vorgang_id, token_hash, "intern", ausgang, erst)
-        raise
-    # Der Link steht nach dem # (Fragment): Der Browser schickt ihn nie an den Server, er landet in keinem Zugriffsprotokoll von SignNext oder des Proxys.
-    text = TEXT.format(link="%s/u#%s" % (basis, token))
-    if zugang["signatur"]:
-        text += "\n-- \n%s\n" % zugang["signatur"]
-    nachricht = mailer.nachricht_bauen(zugang["absender_adresse"], zugang["absender_name"], e["email"], BETREFF, text)
-    empfaenger = [e["email"]] + ([zugang["absender_adresse"]] if zugang["bcc_an_absender"] else [])
-    try:
-        message_id = mailer.senden(zugang, empfaenger, nachricht)
-    except mailer.MailFehler as f:
-        if f.definitiv:
-            _zurueck(mandant_ref, vorgang_id, token_hash, f.code, ausgang, erst)
-            raise Fehler("mail_" + f.code, FEHLER_STATUS.get(f.code, 502))
-        _versand_eintragen(mandant_ref, vorgang_id, "unklar", "unklar")
-        db.vorgang_status_wechseln(mandant_ref, vorgang_id, "versenden", "versand_unklar", versand_fehler="unklar")
-        raise Fehler("versand_unklar", 502)
-    except Exception:
-        _versand_eintragen(mandant_ref, vorgang_id, "unklar", "intern")
-        db.vorgang_status_wechseln(mandant_ref, vorgang_id, "versenden", "versand_unklar", versand_fehler="unklar")
-        raise Fehler("versand_unklar", 502)
-    finally:
-        zugang["passwort"] = None
+    if demo_ohne_mail:                                           # nur Demo: kein Mailserver, der Link wird am Bildschirm gezeigt
+        message_id = "demo-ohne-mail"
+    else:
+        try:
+            zugang = mail_zugang.fuer_dienst(mandant_ref, "versand", nutzer)
+        except schluessel.Entschluesselung:
+            _zurueck(mandant_ref, vorgang_id, token_hash, "mail_zugang_nicht_lesbar", ausgang, erst)
+            raise Fehler("mail_zugang_nicht_lesbar", 503)
+        except Exception:
+            _zurueck(mandant_ref, vorgang_id, token_hash, "intern", ausgang, erst)
+            raise
+        # Der Link steht nach dem # (Fragment): Der Browser schickt ihn nie an den Server, er landet in keinem Zugriffsprotokoll von SignNext oder des Proxys.
+        text = TEXT.format(link="%s/u#%s" % (basis, token))
+        if zugang["signatur"]:
+            text += "\n-- \n%s\n" % zugang["signatur"]
+        nachricht = mailer.nachricht_bauen(zugang["absender_adresse"], zugang["absender_name"], e["email"], BETREFF, text)
+        empfaenger = [e["email"]] + ([zugang["absender_adresse"]] if zugang["bcc_an_absender"] else [])
+        try:
+            message_id = mailer.senden(zugang, empfaenger, nachricht)
+        except mailer.MailFehler as f:
+            if f.definitiv:
+                _zurueck(mandant_ref, vorgang_id, token_hash, f.code, ausgang, erst)
+                raise Fehler("mail_" + f.code, FEHLER_STATUS.get(f.code, 502))
+            _versand_eintragen(mandant_ref, vorgang_id, "unklar", "unklar")
+            db.vorgang_status_wechseln(mandant_ref, vorgang_id, "versenden", "versand_unklar", versand_fehler="unklar")
+            raise Fehler("versand_unklar", 502)
+        except Exception:
+            _versand_eintragen(mandant_ref, vorgang_id, "unklar", "intern")
+            db.vorgang_status_wechseln(mandant_ref, vorgang_id, "versenden", "versand_unklar", versand_fehler="unklar")
+            raise Fehler("versand_unklar", 502)
+        finally:
+            zugang["passwort"] = None
     _versand_eintragen(mandant_ref, vorgang_id, "gesendet", "neuer_link" if neu else "", message_id)
     versendet_am = db.jetzt()
     if neu:
@@ -163,4 +174,7 @@ def _senden(mandant_ref: str, vorgang_id: int, nutzer: str, neu: bool) -> dict:
             code_hmac=e["code_hmac"], code_kid=e["code_kid"], datum_herkunft=e["datum_herkunft"], personen=e["personen"], personen_herkunft=e["personen_herkunft"])
     with db.verbindung() as c:
         db.erinnerungen_planen(c, mandant_ref, vorgang_id, jetzt)
-    return {"vorgang_id": int(vorgang_id), "status": "versendet", "versendet_am": versendet_am, "link_laeuft_ab": _zeit(laeuft_ab), "neuer_link": neu}
+    antwort = {"vorgang_id": int(vorgang_id), "status": "versendet", "versendet_am": versendet_am, "link_laeuft_ab": _zeit(laeuft_ab), "neuer_link": neu}
+    if config.demo_aktiv():                                      # nur Demo: Link für die Anzeige am Bildschirm (sonst nie in einer Antwort)
+        antwort["demo_link"] = "%s/u#%s" % (basis, token)
+    return antwort

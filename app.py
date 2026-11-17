@@ -5,6 +5,7 @@ import os
 from flask import Flask, Request, jsonify
 
 import api
+import demo_api
 import config
 import db
 import download
@@ -53,6 +54,7 @@ def create_app(db_pfad: str | None = None) -> Flask:
         raise RuntimeError("SIGNNEXT_DEMO_ANMELDUNG=offen abgelehnt: " + fehler)       # fail closed: lieber kein Start als eine offene Beraterseite
     db.init(db_pfad)
     app.register_blueprint(api.bp)
+    app.register_blueprint(demo_api.bp)
     app.register_blueprint(zugang.bp)
     app.register_blueprint(download.bp)
     app.register_blueprint(ui_ausliefern.bp)

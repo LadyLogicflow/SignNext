@@ -121,7 +121,17 @@ def versand_modus() -> str:
 
 
 def versand_testadressen() -> set:
-    return {a.strip().lower() for a in os.environ.get("SIGNNEXT_VERSAND_TESTADRESSEN", "").split(",") if a.strip()}
+    """Erlaubte Empfänger im Modus testadressen: SIGNNEXT_VERSAND_TESTADRESSEN (Komma-Liste) plus die Datei testadressen.txt im Datenverzeichnis (eine Adresse je Zeile, # beginnt
+    einen Kommentar). Die Datei wird bei JEDEM Aufruf gelesen: Adressen lassen sich ohne Neustart ergänzen."""
+    adressen = {a.strip().lower() for a in os.environ.get("SIGNNEXT_VERSAND_TESTADRESSEN", "").split(",") if a.strip()}
+    try:
+        for zeile in (daten_verzeichnis() / "testadressen.txt").read_text(encoding="utf-8").splitlines():
+            a = zeile.split("#", 1)[0].strip().lower()
+            if a and "@" in a and " " not in a:
+                adressen.add(a)
+    except OSError:
+        pass
+    return adressen
 
 
 def aufbewahrung_tage() -> int:

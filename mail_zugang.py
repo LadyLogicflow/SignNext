@@ -4,6 +4,7 @@ Das Passwort wird verschlüsselt gespeichert (schluessel.py) und ist nur schreib
 Jeder Lesezugriff des Dienstes auf das Passwort (Versand, Test) wird protokolliert (Zweck, ohne Wert)."""
 import re
 
+import config
 import db
 import mailer
 import schluessel
@@ -41,6 +42,13 @@ def _einzeilig(wert: str, feld: str) -> str:
     return wert
 
 
+def hinweise(d: dict) -> list:
+    """Nicht blockierende Hinweise zum Zugang (Demo): Benutzername und Absenderadresse verschieden."""
+    if d.get("konfiguriert") and (d.get("benutzer") or "").strip().lower() != (d.get("absender_adresse") or "").strip().lower():
+        return ["Benutzername und Absenderadresse sind verschieden: Der Mailserver muss das Senden als diese Adresse erlauben, sonst wird die Mail abgelehnt."]
+    return []
+
+
 def sicht(mandant_ref: str) -> dict:
     """Was die Oberfläche sehen darf: alles außer dem Passwort."""
     with db.verbindung() as c:
@@ -51,6 +59,8 @@ def sicht(mandant_ref: str) -> dict:
     d = dict(z)
     d["bcc_an_absender"] = bool(d["bcc_an_absender"])
     d.update({"konfiguriert": True, "passwort_gesetzt": True})
+    if config.demo_aktiv():
+        d["hinweise"] = hinweise(d)
     return d
 
 
@@ -77,6 +87,9 @@ def setzen(mandant_ref: str, eingabe: dict, nutzer: str) -> dict:
     absender = _einzeilig(_text(nimm("absender_adresse"), "absender_adresse", 254), "absender_adresse").lower()
     if not mailer.adresse_gueltig(absender):
         raise Ungueltig("Die Absenderadresse ist ungültig.", "absender_adresse")
+    if config.demo_aktiv() and "@" in benutzer and benutzer.rsplit("@", 1)[1].lower() != absender.rsplit("@", 1)[1]:
+        # Demo (catrin #19330): Absender-Domain mit strengem DMARC (aspf/adkim=s) verlangt, dass über den Mailserver GENAU dieser Domain gesendet wird.
+        raise Ungueltig("Die Domain des Benutzers und die der Absenderadresse müssen übereinstimmen (sonst verwirft der Empfänger die Mail wegen DMARC).", "absender_adresse")
     name = _einzeilig(_text(nimm("absender_name", ""), "absender_name", 100, pflicht=False), "absender_name")
     if re.search(r"[<>\"\\]", name):
         raise Ungueltig("Der Absendername enthält ungültige Zeichen.", "absender_name")

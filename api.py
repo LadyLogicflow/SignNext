@@ -179,8 +179,14 @@ def vorgang_versenden(vorgang_id):
     daten = request.get_json(silent=True)
     if not isinstance(daten, dict) or daten.get("bestaetigt") is not True:
         return jsonify({"error": "bestaetigung_fehlt", "meldung": MELDUNGEN["bestaetigung_fehlt"]}), 400
+    ohne_mail = daten.get("ohne_mail", False)
+    if not isinstance(ohne_mail, bool) or set(daten) - {"bestaetigt", "ohne_mail"} or (ohne_mail and not config.demo_aktiv()):
+        return jsonify({"error": "eingabe_ungueltig", "meldung": "Ungültige Eingabe."}), 400
     try:
-        ergebnis = versand.versenden(g.nutzer["mandant_ref"], vorgang_id, g.nutzer["email"])
+        if ohne_mail:                                                    # nur Demo: Link und QR am Bildschirm statt Mail
+            ergebnis = versand.versenden_demo_ohne_mail(g.nutzer["mandant_ref"], vorgang_id, g.nutzer["email"])
+        else:
+            ergebnis = versand.versenden(g.nutzer["mandant_ref"], vorgang_id, g.nutzer["email"])
     except versand.Fehler as f:
         audit("versand_abgebrochen", "id=%d grund=%s" % (vorgang_id, f.code))
         antwort = {"error": f.code, "meldung": MELDUNGEN.get(f.code, f.code)}
@@ -189,10 +195,17 @@ def vorgang_versenden(vorgang_id):
             antwort.update({k: tarif.info(g.nutzer["mandant_ref"])[k] for k in ("tarif", "limit", "genutzt", "zeitraum")})
         if f.einzelheiten:
             antwort["fehlend"] = f.einzelheiten
+        if config.demo_aktiv() and (f.code.startswith("mail_") or f.code in ("empfaenger_nicht_freigegeben", "versand_gesperrt")):
+            antwort["fallback"] = "ohne_mail"                            # Demo: die Oberfläche bietet „Ohne Mail fortfahren“ (erneut senden mit ohne_mail: true)
         return jsonify(antwort), f.status
     except pdf_eingang.Fehler as f:
         return _fehler(f)
-    audit("versendet", "id=%d" % vorgang_id)
+    audit("versendet", "id=%d%s" % (vorgang_id, " ohne_mail" if ohne_mail else ""))
+    link = ergebnis.pop("demo_link", None)
+    if link:                                                             # nur Demo: Link, QR und Hinweis für die Anzeige am Bildschirm
+        import qr
+        ergebnis["demo"] = {"link": link, "qr_svg": qr.svg(link), "ohne_mail": ohne_mail,
+                            "geburtsdatum_hinweis": "Zum Öffnen gibt das Mitglied sein Geburtsdatum ein (sechs Ziffern TTMMJJ)."}
     return jsonify(ergebnis)
 
 
