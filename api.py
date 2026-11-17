@@ -62,6 +62,7 @@ def vorgang(vorgang_id):
         return jsonify({"error": "nicht_gefunden"}), 404
     audit("vorgang_gelesen", "id=%d" % vorgang_id)
     v["link_status"] = db.link_status(g.nutzer["mandant_ref"], vorgang_id)
+    v["link_laeuft_ab"] = db.link_laeuft_ab(g.nutzer["mandant_ref"], vorgang_id)
     v["dokumente"] = [{k: d[k] for k in ("id", "rolle", "seiten", "groesse", "sha256", "stellen")} for d in db.dokumente_liste(g.nutzer["mandant_ref"], vorgang_id)]
     return jsonify(v)
 

@@ -105,6 +105,17 @@ class TestListe(RouteBasis):
             c.execute("UPDATE link SET laeuft_ab=?, gesperrt=1 WHERE vorgang_id=?", (_zeit(days=3), ehepaar))
         self.assertEqual({e["id"]: e for e in self.c.get("/api/v1/vorgaenge").get_json()["vorgaenge"]}[ehepaar]["link_status"], "gesperrt")
 
+    def test_einzelabruf_liefert_den_ablauf_des_neuesten_links(self):
+        vid = hochladen(self.c, pdfs.b_pdf(), pdfs.a_pdf(), namen=["b.pdf", "a.pdf"]).get_json()["vorgang_id"]
+        j = self.c.get("/api/v1/vorgaenge/%d" % vid).get_json()
+        self.assertEqual((j["link_status"], j["link_laeuft_ab"]), (None, None))
+        neu = _zeit(days=5)
+        with db.verbindung() as c:
+            c.execute("INSERT INTO link(vorgang_id, mandant_ref, token_hash, erstellt, laeuft_ab, gesperrt) VALUES (?,?,?,?,?,1)", (vid, "1001", "h0", _zeit(days=-9), _zeit(days=-6)))
+            c.execute("INSERT INTO link(vorgang_id, mandant_ref, token_hash, erstellt, laeuft_ab, gesperrt) VALUES (?,?,?,?,?,0)", (vid, "1001", "h1", _zeit(), neu))
+        j = self.c.get("/api/v1/vorgaenge/%d" % vid).get_json()
+        self.assertEqual((j["link_status"], j["link_laeuft_ab"]), ("aktiv", neu))
+
     def test_geloeschte_stehen_nicht_in_der_liste(self):
         vid = hochladen(self.c, pdfs.b_pdf(), namen=["x.pdf"]).get_json()["vorgang_id"]
         self.assertEqual(self.c.delete("/api/v1/vorgaenge/%d" % vid, json={"bestaetigt": True}).status_code, 200)

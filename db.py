@@ -531,6 +531,13 @@ def link_status(mandant_ref: str, vorgang_id: int) -> str | None:
     return _link_status_aus(zeilen[0], jetzt_text())
 
 
+def link_laeuft_ab(mandant_ref: str, vorgang_id: int) -> str | None:
+    """Ablaufzeitpunkt des neuesten Links (UTC-Text) oder None, wenn es noch keinen gibt."""
+    with verbindung() as c:
+        z = c.execute("SELECT laeuft_ab FROM link WHERE mandant_ref=? AND vorgang_id=? ORDER BY id DESC LIMIT 1", (mandant_ref, int(vorgang_id))).fetchone()
+    return z["laeuft_ab"] if z else None
+
+
 def _link_status_aus(z, jetzt: str) -> str:
     if z["verbraucht_am"]:
         return "verbraucht"
