@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Unterschrift am Handy - SignNext</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Unterschrift am Handy</h1>
+        </header>
+
+        <main id="app">
+            <div id="meldung" class="error hidden" role="alert"></div>
+
+            <div id="step-zeichnen" class="step">
+                <p id="handy-einleitung" class="info-box">Bitte unterschreiben Sie hier mit dem Finger. Danach tippen Sie auf „Übertragen“ und wechseln zurück zum Computer.</p>
+
+                <div id="zeichenfeld" class="form-group zeichenfeld">
+                    <span id="zeichenfeld-label" class="zeichenfeld-label">Unterschrift</span>
+                    <canvas id="unterschrift-canvas" class="zeichenfeld-canvas" width="600" height="200" role="img" aria-labelledby="zeichenfeld-label"></canvas>
+                    <div class="zeichenfeld-leiste">
+                        <span class="zeichenfeld-hilfe">Mit Maus, Stift oder Finger unterschreiben.</span>
+                        <button id="btn-clear" type="button" class="zeichenfeld-leeren">löschen</button>
+                    </div>
+                    <p id="zeichenfeld-fehlt" class="zeichenfeld-fehlt">Bitte hier unterschreiben.</p>
+                </div>
+
+                <button id="btn-uebertragen" type="button" class="btn btn-primary" disabled>Übertragen</button>
+            </div>
+
+            <div id="step-fertig" class="step hidden">
+                <div class="success-box">
+                    <h2>Übertragen!</h2>
+                    <p>Sie können jetzt zum Computer zurückwechseln. Dort geht es weiter.</p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="zeichenfeld.js"></script>
+    <script src="handy.js"></script>
+</body>
+</html>

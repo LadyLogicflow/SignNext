@@ -142,7 +142,7 @@ class TestSchutzwaechterUI(unittest.TestCase):
                     self.assertTrue(ausnahme, "%s:%d %s" % (datei.name, zeile, muster))
 
     def test_kein_token_in_speicher_oder_adresse(self):
-        for name in ("app.js", "download.js"):
+        for name in ("app.js", "download.js", "handy.js"):
             text = (UI / name).read_text(encoding="utf-8")
             self.assertIn("history.replaceState", text, name)
             self.assertNotRegex(text, r"(?i)(localStorage|sessionStorage|document\.cookie)", name)
@@ -170,7 +170,7 @@ class TestHandyHinweis(Basis):
         m = re.search(r'<p id="unterschrift-hinweis">([^<]*)</p>', html)
         self.assertIsNotNone(m, "schlichter Absatz ohne class, style oder hidden")
         self.assertEqual(m.group(1), self.SATZ)
-        self.assertLess(html.index('<label for="unterschrift-canvas">'), m.start())
+        self.assertLess(html.index('id="zeichenfeld-label"'), m.start())
         self.assertLess(m.start(), html.index('<canvas id="unterschrift-canvas"'))               # vor dem Zeichenfeld
         self.assertLess(html.index('id="step-unterschrift"'), m.start())                         # im Schritt der Unterschrift, nicht davor
         self.assertEqual(html, (UI / "unterschrift.html").read_text(encoding="utf-8"))
