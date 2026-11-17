@@ -229,5 +229,63 @@ class TestHandySeite(unittest.TestCase):
         self.assertIn("step-zeichnen", viele["schritte"][1]["zustand"]["schritt"])
 
 
+@unittest.skipUnless(BEREIT, HINWEIS)
+class TestKeinTestversionAnschein(unittest.TestCase):
+    """catrin 17.11.2026: kein ENTWURF-Hinweis, keine Platzhalter, keine technische Textkennung auf der Mitgliederseite."""
+
+    def test_weder_entwurf_noch_kennung_auch_wenn_die_texte_nicht_freigegeben_sind(self):
+        for api in ({}, {"texteFreigegeben": False, "kennung": "SignNext-Datenschutzhinweis-1.0 (Freigabe offen)"}):
+            o = lauf(seite="/u", fragment="#tok", api=api, ops=bis_zum_feld())
+            start = o["start"]
+            self.assertEqual(start["hinweis_text"], "Bitte Geburtsdatum eingeben.", api)                    # nur der Zugangshinweis, keine Kennungszeile
+            feld = o["schritte"][len(bis_zum_feld()) - 1]["zustand"]
+            self.assertEqual(feld["datenschutz_text"], "Datenschutzinformation\n\nDatenschutz\n\n---\n\nSatz", api)
+            for z in (start, feld):
+                self.assertFalse(z["testversion_im_text"], api)
+            self.assertEqual(o["fehler_js"], [], api)
+
+    def test_fehlt_ein_text_wird_nicht_unterschrieben_und_kein_platzhalter_gezeigt(self):
+        for fehlt in ({"datenschutz": ""}, {"unterschriftssatz": ""}):
+            o = lauf(seite="/u", fragment="#tok", api={"texteFehlen": fehlt}, ops=bis_zum_feld())
+            z = o["schritte"][len(bis_zum_feld()) - 1]["zustand"]
+            self.assertTrue(z["schritt_seiten_sichtbar"], fehlt)                                           # zurück beim Lesen
+            self.assertFalse(z["schritt_unterschrift_sichtbar"], fehlt)                                    # Unterschriftsschritt bleibt zu
+            self.assertIn("Die Datenschutzinformation konnte nicht geladen werden.", z["meldung"], fehlt)
+            self.assertFalse(z["testversion_im_text"], fehlt)
+            self.assertEqual(z["alerts"], [], fehlt)
+
+
+@unittest.skipUnless(BEREIT, HINWEIS)
+class TestCodeFeld(unittest.TestCase):
+    """Das Geburtsdatum als Zugangscode: mit UND ohne Punkte (die Mail sagt "ohne Punkte"), der Server bekommt immer 6 Ziffern."""
+    GUELTIG = ["010190", "01.01.90", "01.0190", "0101.90"]
+    UNGUELTIG = ["0101", "01.01.9", "0101900", "01-01-90", "abcdef", "01.01.9a"]
+
+    def test_unterschriftsseite_akzeptiert_beide_schreibweisen(self):
+        for eingabe in self.GUELTIG:
+            o = lauf(seite="/u", fragment="#tok", ops=[{"op": "wert_id", "id": "code", "wert": eingabe, "warte": 50}, {"op": "code", "wert": eingabe, "warte": 300}])
+            self.assertTrue(o["schritte"][0]["zustand"]["code_gueltig"], eingabe)                          # der Browser lässt das Absenden zu
+            post = [r for r in o["schritte"][1]["zustand"]["requests"] if r["p"] == "/api/v1/zugang/pruefen"]
+            self.assertEqual([r["body"] for r in post], [{"token": "tok", "code": "010190"}], eingabe)      # genau 6 Ziffern, ohne Punkte
+
+    def test_unterschriftsseite_weist_falsche_eingaben_ab(self):
+        for eingabe in self.UNGUELTIG:
+            o = lauf(seite="/u", fragment="#tok", ops=[{"op": "wert_id", "id": "code", "wert": eingabe, "warte": 50}, {"op": "code", "wert": eingabe, "warte": 300}])
+            self.assertFalse(o["schritte"][0]["zustand"]["code_gueltig"], eingabe)
+            post = [r for r in o["schritte"][1]["zustand"]["requests"] if r["p"] == "/api/v1/zugang/pruefen"]
+            self.assertEqual(post, [], eingabe)
+            self.assertEqual(o["schritte"][1]["zustand"]["code_fehler"], "Bitte im Format TT.MM.JJ eingeben", eingabe)
+
+    def test_downloadseite_akzeptiert_beide_schreibweisen(self):
+        for eingabe in self.GUELTIG:
+            o = lauf(seite="/d", fragment="#tok", ops=[{"op": "wert_id", "id": "code", "wert": eingabe, "warte": 50}, {"op": "code", "form": "form-download", "wert": eingabe, "warte": 300}])
+            self.assertTrue(o["schritte"][0]["zustand"]["code_gueltig"], eingabe)
+            post = [r for r in o["schritte"][1]["zustand"]["requests"] if r["p"] == "/api/v1/download"]
+            self.assertEqual([r["body"] for r in post], [{"token": "tok", "code": "010190"}], eingabe)
+        for eingabe in self.UNGUELTIG:
+            o = lauf(seite="/d", fragment="#tok", ops=[{"op": "code", "form": "form-download", "wert": eingabe, "warte": 300}])
+            self.assertEqual([r for r in o["schritte"][0]["zustand"]["requests"] if r["p"] == "/api/v1/download"], [], eingabe)
+
+
 if __name__ == "__main__":
     unittest.main()

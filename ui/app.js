@@ -25,10 +25,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
         const hinweis = await api('GET', '/hinweis');
         const hinweisEl = document.getElementById('hinweis-text');
-        hinweisEl.textContent = `${hinweis.kennung || ''}\n\n${hinweis.zugangshinweis || 'Bitte geben Sie Ihr Geburtsdatum ein.'}`;
-        if (!hinweis.freigegeben) {
-            hinweisEl.textContent += '\n\n[ENTWURF - Texte noch nicht freigegeben]';
-        }
+        hinweisEl.textContent = hinweis.zugangshinweis || 'Bitte geben Sie Ihr Geburtsdatum ein.';       // die Textkennung steht im Nachweis, nicht auf der Seite
     } catch (err) {
         console.error(err);
     }
@@ -200,9 +197,13 @@ async function loadTexte() {
     const texte = await api('GET', '/texte');
     textHash = texte.hash;
 
+    // Fehlt ein Text, wird nicht unterschrieben: zurück zum Lesen, mit verständlichem Satz (kein Platzhalter im Text)
+    if (!texte.texte || !texte.texte.datenschutz || !texte.texte.unterschriftssatz) {
+        showStep('step-seiten');
+        throw new Error('Die Datenschutzinformation konnte nicht geladen werden. Bitte versuchen Sie es später noch einmal oder wenden Sie sich an Ihre Beratungsstelle.');
+    }
     const datenschutz = document.getElementById('datenschutz-text');
-    const dsText = `Datenschutzinformation\n\n${texte.texte.datenschutz || '[PLATZHALTER]'}\n\n---\n\n${texte.texte.unterschriftssatz || '[PLATZHALTER]'}`;
-    datenschutz.textContent = texte.freigegeben ? dsText : `[ENTWURF - Texte noch nicht freigegeben]\n\n${dsText}`;
+    datenschutz.textContent = `Datenschutzinformation\n\n${texte.texte.datenschutz}\n\n---\n\n${texte.texte.unterschriftssatz}`;
 
     document.getElementById('haken-text').textContent = texte.texte.haken || 'Ich habe die Datenschutzinformation gelesen';
 }

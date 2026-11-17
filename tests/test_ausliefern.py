@@ -227,6 +227,14 @@ class TestBeraterRahmenStatik(unittest.TestCase):
             self.assertNotIn("demo-banner", text, datei.name)
             self.assertNotIn("keine echten Personendaten", text, datei.name)
 
+    def test_nichts_im_ui_code_erweckt_den_anschein_einer_testversion(self):
+        # catrin 17.11.2026; echte Fehler/Sperren und Formathilfen (name@beispiel.de) bleiben erlaubt
+        verboten = ("ENTWURF", "PLATZHALTER", "demo-bereich", "demo-testmail", "Demo-Vorgang", "SignNext Demo", "Demo-Beratungsstelle", "Musterstadt", "Texte noch nicht freigegeben")
+        for datei in [d for d in UI.glob("*") if d.is_file()]:
+            text = datei.read_text(encoding="utf-8")
+            for wort in verboten:
+                self.assertNotIn(wort, text, (datei.name, wort))
+
     def test_karten_bleiben_am_handy_nebeneinander(self):
         css = (UI / "berater.css").read_text(encoding="utf-8")
         schmal = css.split("@media (max-width: 700px)", 1)[1]

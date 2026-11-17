@@ -31,7 +31,9 @@ class TestDemoRahmen(unittest.TestCase):
         for seite in SEITEN:
             o = lauf(seite=seite, api={"me": sperre}, ops=[])
             b = o["start"]["berater"]
-            self.assertEqual(b["nur_heimnetz"], "Diese Demo ist nur im Heimnetz erreichbar.", seite)
+            self.assertEqual(b["nur_heimnetz"], "Diese Seite ist nur im Heimnetz erreichbar.", seite)                          # die Sperre bleibt, nur ohne das Wort Demo
+            self.assertEqual(b["ueberschrift"], "SignNext", seite)
+            self.assertFalse(b["testversion_woerter"], seite)
             self.assertIsNone(b["banner"], seite)
             self.assertEqual(o["start"]["pfad"], seite.split("?")[0], seite)                      # keine Weiterleitung zum Portal
             self.assertEqual(api_aufrufe(o["start"]), [("GET", "/api/v1/me")], seite)             # die Seite lädt sonst nichts
@@ -45,77 +47,22 @@ class TestDemoRahmen(unittest.TestCase):
 
 
 @unittest.skipUnless(BEREIT, HINWEIS)
-class TestDemoVorgaenge(unittest.TestCase):
-    def test_beispiel_pdfs_und_demo_vorgang_mit_link_und_code(self):
-        o = lauf(seite="/vorgaenge", api={"me": DEMO}, ops=[{"op": "klick_id", "id": "btn-demo-vorgang", "warte": 700}, {"op": "klick_sel", "sel": "#demo-ergebnis .link-kopieren", "warte": 200}])
-        b = o["start"]["berater"]
-        self.assertTrue(b["demo_bereich"])
-        self.assertEqual([(a["href"], a["download"], a["text"]) for a in b["pdf_links"]],                       # die Liste kommt vom Server (GET /api/v1/demo)
-                         [("/api/v1/demo/beispiel/anschreiben", True, "Anschreiben"), ("/api/v1/demo/beispiel/anschreiben-einzel", True, "Anschreiben Einzelperson"),
-                          ("/api/v1/demo/beispiel/protokoll-ehepaar", True, "Protokoll Ehepaar"), ("/api/v1/demo/beispiel/protokoll-einzel", True, "Protokoll Einzelperson")])
-        self.assertEqual(b["vorgang_karten"], 1)
-        neu = o["schritte"][0]["zustand"]
-        self.assertEqual([r for r in neu["requests"] if r["m"] == "POST"][0]["p"], "/api/v1/demo/vorgang")
-        ergebnis = neu["berater"]["demo_ergebnis"]
-        self.assertEqual((ergebnis["link"], ergebnis["link_nur_lesen"]), ("https://sn.example/u#demo8", True))
-        self.assertEqual(ergebnis["qr"]["tag"], "IMG")                                             # Link auch als QR (qr_svg vom Server)
-        self.assertEqual(unquote(ergebnis["qr"]["src"].split(",", 1)[1]), QR_ALS_BILD)
-        self.assertIn("Demo-Vorgang 8 angelegt", ergebnis["text"])
-        self.assertIn("Geburtsdatum 01.02.1960", ergebnis["text"])
-        self.assertIn("Eingabe: 010260", ergebnis["text"])
-        self.assertEqual(neu["berater"]["vorgang_karten"], 2)                                      # die Liste wurde neu geladen
-        kopiert = o["schritte"][1]["zustand"]
-        self.assertEqual(kopiert["zwischenablage"], ["https://sn.example/u#demo8"])
-        self.assertEqual(kopiert["berater"]["demo_ergebnis"]["kopieren"], "Kopiert!")
+class TestKeinTestversionAnschein(unittest.TestCase):
+    """catrin 17.11.2026: alles, was den Anschein einer Testversion erweckt, entfällt (Demo-Karten, Testdaten-Balken, Demo-Namen). Echte Sperren und Fehler bleiben."""
 
-    def test_nur_einfache_namen_werden_zu_beispiel_links(self):
-        info = {"demo": True, "versand": "aus", "testadressen": [], "mail_zugang_geprueft": True, "beispiele": ["neues-beispiel", "../geheim", "x y", "<b>", "ok-2"]}
-        o = lauf(seite="/vorgaenge", api={"me": DEMO, "demoInfo": info}, ops=[])
-        self.assertEqual([(a["href"], a["text"]) for a in o["start"]["berater"]["pdf_links"]],
-                         [("/api/v1/demo/beispiel/neues-beispiel", "neues-beispiel"), ("/api/v1/demo/beispiel/ok-2", "ok-2")])
+    def test_keine_demo_karten_und_keine_demo_woerter_auf_den_berater_seiten(self):
+        for seite in SEITEN:
+            for api in ({"me": DEMO}, {}):
+                o = lauf(seite=seite, api=api, ops=[])
+                b = o["start"]["berater"]
+                self.assertEqual(b["demo_elemente"], 0, (seite, api))                                   # weder Demo-Karte noch Testmail-Karte noch Balken im DOM
+                self.assertFalse(b["testversion_woerter"], (seite, api))
+                self.assertEqual(o["fehler_js"], [], (seite, api))
 
-    def test_ohne_demo_gibt_es_den_bereich_nicht(self):
-        o = lauf(seite="/vorgaenge", ops=[])
-        self.assertFalse(o["start"]["berater"]["demo_bereich"])
-        self.assertNotIn(("GET", "/api/v1/demo"), api_aufrufe(o["start"]))
-
-
-@unittest.skipUnless(BEREIT, HINWEIS)
-class TestDemoTestmail(unittest.TestCase):
-    def test_testmail_geht_nur_an_eine_erlaubte_adresse(self):
-        o = lauf(seite="/einstellungen", api={"me": DEMO, "demoInfo": {"demo": True, "versand": "testadressen", "testadressen": ["a@example.org", "b@example.org"], "mail_zugang_geprueft": False}},
-                 ops=[{"op": "auswahl_id", "id": "demo-testadresse", "wert": "b@example.org", "warte": 100}, {"op": "klick_id", "id": "btn-demo-testmail", "warte": 500}])
-        t = o["start"]["berater"]["testmail"]
-        self.assertTrue(t["sichtbar"])
-        self.assertEqual(t["optionen"], ["a@example.org", "b@example.org"])
-        self.assertIn("nur an die erlaubten Testadressen", t["info"])
-        self.assertIn("Mail-Zugang wurde noch nicht erfolgreich geprüft", t["info"])
-        self.assertFalse(t["knopf_gesperrt"])
-        gesendet = o["schritte"][1]["zustand"]
-        post = [r for r in gesendet["requests"] if r["m"] == "POST"][0]
-        self.assertEqual((post["p"], post["body"]), ("/api/v1/demo/testmail", {"an": "b@example.org"}))                      # genau die gewählte Adresse
-        self.assertEqual(gesendet["berater"]["testmail"]["erfolg"], "Die Testmail wurde an b@example.org gesendet.")
-        self.assertIsNone(gesendet["berater"]["testmail"]["fehler"])
-
-    def test_fehler_der_pruefung_steht_im_text_und_ohne_adresse_kein_knopf(self):
-        fehler = lauf(seite="/einstellungen", api={"me": DEMO, "testmailFehler": {"status": 502, "error": "mail_fehler", "meldung": "Der Mailserver hat die Testmail abgelehnt."}},
-                      ops=[{"op": "klick_id", "id": "btn-demo-testmail", "warte": 500}])
-        t = fehler["schritte"][0]["zustand"]["berater"]["testmail"]
-        self.assertEqual(t["fehler"], "Der Mailserver hat die Testmail abgelehnt.")
-        self.assertIsNone(t["erfolg"])
-        self.assertFalse(t["knopf_gesperrt"])
-        self.assertEqual(fehler["schritte"][0]["zustand"]["alerts"], [])
-        leer = lauf(seite="/einstellungen", api={"me": DEMO, "demoInfo": {"demo": True, "versand": "aus", "testadressen": [], "mail_zugang_geprueft": True}}, ops=[])
-        b = leer["start"]["berater"]["testmail"]
-        self.assertTrue(b["knopf_gesperrt"])
-        self.assertIn("keine Testadresse erlaubt", b["info"])
-        self.assertIn("ausgeschaltet", b["info"])
-
-    def test_ohne_demo_keine_testmail_funktion(self):
-        o = lauf(seite="/einstellungen", ops=[])
-        self.assertFalse(o["start"]["berater"]["testmail"]["sichtbar"])
-        self.assertNotIn(("GET", "/api/v1/demo"), api_aufrufe(o["start"]))
-
+    def test_im_demo_ruft_die_seite_keine_demo_schnittstelle_mehr_auf(self):
+        for seite in ("/vorgaenge", "/einstellungen"):
+            o = lauf(seite=seite, api={"me": DEMO}, ops=[])
+            self.assertEqual([p for _, p in api_aufrufe(o["start"]) if p.startswith("/api/v1/demo")], [], seite)
 
 @unittest.skipUnless(BEREIT, HINWEIS)
 class TestDemoMailZugang(unittest.TestCase):
@@ -178,7 +125,7 @@ class TestRahmen(unittest.TestCase):
         html = lauf(seite="/vorgaenge", api={"me": {"status": 200, "body": {"email": "<b>x</b>@example.org"}}}, ops=[])["start"]["berater"]
         self.assertEqual(html["angemeldet"], "Angemeldet als: <b>x</b>@example.org")           # als Text, nicht als Markup
         demo = lauf(seite="/vorgaenge", api={"me": DEMO}, ops=[])["start"]["berater"]
-        self.assertEqual(demo["angemeldet"], "Angemeldet als: Demo-Beratungsstelle")
+        self.assertIsNone(demo["angemeldet"])                                                  # ohne Anmeldung gibt es nichts zu zeigen, kein "Demo-Beratungsstelle"
         self.assertIsNone(demo["banner"])                                                      # kein Demo-Balken mehr (catrin 17.11.)
 
     def test_hinweisleiste_nur_wenn_etwas_fehlt(self):

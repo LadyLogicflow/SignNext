@@ -22,8 +22,8 @@
                 <form id="form-code">
                     <div class="form-group">
                         <label for="code">Geburtsdatum (TT.MM.JJ)</label>
-                        <input type="text" id="code" placeholder="01.01.90" maxlength="8" required pattern="\d{2}\.\d{2}\.\d{2}">
-                        <small>Geben Sie Ihr Geburtsdatum ein (6 Ziffern)</small>
+                        <input type="text" id="code" placeholder="01.01.90" maxlength="8" required pattern="\d{2}\.?\d{2}\.?\d{2}">
+                        <small>Geben Sie Ihr Geburtsdatum ein: 6 Ziffern, mit oder ohne Punkte (zum Beispiel 010190 oder 01.01.90)</small>
                     </div>
                     <div id="code-error" class="error hidden"></div>
                     <div id="versuch-info" class="warning hidden"></div>

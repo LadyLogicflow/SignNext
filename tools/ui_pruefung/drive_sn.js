@@ -7,7 +7,7 @@ const path = require('path');
 
 const arg = JSON.parse(process.argv[2]);
 const UI = path.resolve(__dirname, '..', '..', 'ui');
-const SEITEN = {'/u': 'unterschrift.html', '/h': 'handy.html', '/vorgaenge': 'vorgaenge.html', '/einstellungen': 'einstellungen.html', '/pruefung': 'pruefung.html', '/mail-zugang': 'mail-zugang.html'};
+const SEITEN = {'/u': 'unterschrift.html', '/d': 'download.html', '/h': 'handy.html', '/vorgaenge': 'vorgaenge.html', '/einstellungen': 'einstellungen.html', '/pruefung': 'pruefung.html', '/mail-zugang': 'mail-zugang.html'};
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 const QR_SVG = '<svg viewBox="0 0 10 10"><title>QR-Code</title><rect width="10" height="10" fill="#000"/></svg>';        // wie das Backend: ohne Namensraum
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -54,7 +54,8 @@ function api(req, res, pfad, body) {
     const fehler = (status, error, meldung, extra) => senden(res, status, Object.assign({error, meldung}, extra || {}));
     if (cfg.sitzungFehlt && pfad === cfg.sitzungFehlt) return fehler(401, 'sitzung_ungueltig', 'Sitzung ungültig');
     // Mitglied am Computer (Cookie sn_zugang)
-    if (pfad === '/api/v1/zugang/hinweis') return senden(res, 200, {kennung: 'Kennung-1', zugangshinweis: 'Bitte Geburtsdatum eingeben.', freigegeben: true});
+    if (pfad === '/api/v1/download' && m === 'POST') return fehler(401, 'angaben_stimmen_nicht', 'falsch', {versuch: 1, von: 5, gesperrt: false});
+    if (pfad === '/api/v1/zugang/hinweis') return senden(res, 200, {kennung: cfg.kennung || 'Kennung-1', zugangshinweis: 'Bitte Geburtsdatum eingeben.', freigegeben: cfg.texteFreigegeben !== false});
     if (pfad === '/api/v1/zugang/pruefen') return body.code === '010260' ? senden(res, 200, {ok: true}) : fehler(401, 'angaben_stimmen_nicht', 'falsch', {versuch: 1, von: 5, gesperrt: false});
     if (pfad === '/api/v1/zugang/status') {
         return senden(res, 200, {schritt: 'unterschreiben', seiten: 2, geliefert: 2, personen: cfg.personen, unterschrieben: zustand.unterschrieben,
@@ -66,7 +67,7 @@ function api(req, res, pfad, body) {
         return res.end(Buffer.from(PNG.split(',')[1], 'base64'));
     }
     if (pfad === '/api/v1/zugang/gelesen') return senden(res, 200, {ok: true});
-    if (pfad === '/api/v1/zugang/texte') return senden(res, 200, {hash: 'h1', freigegeben: true, texte: {datenschutz: 'Datenschutz', unterschriftssatz: 'Satz', haken: 'Ich habe gelesen'}});
+    if (pfad === '/api/v1/zugang/texte') return senden(res, 200, {hash: 'h1', freigegeben: cfg.texteFreigegeben !== false, texte: Object.assign({datenschutz: 'Datenschutz', unterschriftssatz: 'Satz', haken: 'Ich habe gelesen'}, cfg.texteFehlen || {})});
     if (pfad === '/api/v1/zugang/unterschrift') {
         if (cfg.unterschriftFehler) return fehler(cfg.unterschriftFehler.status, cfg.unterschriftFehler.error, cfg.unterschriftFehler.meldung);
         zustand.unterschrieben.push(body.person);
@@ -373,6 +374,8 @@ async function main() {
             ueberschrift: doc.querySelector('h1') ? doc.querySelector('h1').textContent : null,
             banner: banner ? banner.textContent : null,
             testdaten_im_text: /Testdaten/.test(doc.body.textContent),
+            demo_elemente: ['demo-bereich', 'demo-testmail', 'btn-demo-vorgang', 'btn-demo-testmail', 'demo-banner'].filter(id => !!doc.getElementById(id)).length,
+            testversion_woerter: /\bDemo|Testdaten|Entwurf|ENTWURF|Platzhalter|erfunden|Musterstadt/.test(doc.body.textContent),
             banner_rolle: banner ? banner.getAttribute('role') : null,
             nur_heimnetz: doc.getElementById('nur-heimnetz') ? doc.getElementById('nur-heimnetz').textContent : null,
             demo_bereich: sichtbar('demo-bereich'),
@@ -410,6 +413,9 @@ async function main() {
             hinweis_oben: text('unterschrift-hinweis'),
             hilfe: doc.querySelector('.zeichenfeld-hilfe') ? doc.querySelector('.zeichenfeld-hilfe').textContent.trim() : null,
             fehlt: sichtbar('zeichenfeld-fehlt') && !doc.getElementById('zeichenfeld-fehlt').classList.contains('unsichtbar') ? text('zeichenfeld-fehlt') : null,
+            code_gueltig: doc.getElementById('code') ? doc.getElementById('code').checkValidity() : null, code_fehler: sichtbar('code-error') ? text('code-error') : null,
+            hinweis_text: text('hinweis-text'), datenschutz_text: text('datenschutz-text'), schritt_seiten_sichtbar: sichtbar('step-seiten'), schritt_unterschrift_sichtbar: sichtbar('step-unterschrift'),
+            testversion_im_text: /ENTWURF|PLATZHALTER|Freigabe offen|nicht freigegeben/.test(doc.body.textContent),
             fehlt_platz: sichtbar('zeichenfeld-fehlt'),                       // Element nimmt weiter Platz ein (kein display:none)
             fehler_unterschrift: sichtbar('unterschrift-error') ? text('unterschrift-error') : null,
             fehler_code: sichtbar('code-error') ? text('code-error') : null,
@@ -444,7 +450,7 @@ async function main() {
         const warte = op.warte === undefined ? 400 : op.warte;
         if (op.op === 'code') {
             doc.getElementById('code').value = op.wert;
-            doc.getElementById('form-code').dispatchEvent(new win.Event('submit', {bubbles: true, cancelable: true}));
+            doc.getElementById(op.form || 'form-code').dispatchEvent(new win.Event('submit', {bubbles: true, cancelable: true}));
         }
         if (op.op === 'seiten_geladen') {
             for (const img of doc.querySelectorAll('#seiten-container img')) img.dispatchEvent(new win.Event('load'));

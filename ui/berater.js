@@ -3,7 +3,7 @@
 'use strict';
 
 (function () {
-    const NUR_HEIMNETZ = 'Diese Demo ist nur im Heimnetz erreichbar.';
+    const NUR_HEIMNETZ = 'Diese Seite ist nur im Heimnetz erreichbar.';
     let meAntwort = null;
 
     async function ladeMe() {
@@ -28,7 +28,7 @@
         const ziel = document.getElementById('angemeldet');
         if (ziel) {
             ziel.textContent = '';
-            const name = data.demo === true ? 'Demo-Beratungsstelle' : data.email;
+            const name = data.demo === true ? '' : data.email;                     // ohne Anmeldung (Demo-Zugang) gibt es keinen Namen zu zeigen
             if (typeof name === 'string' && name) {
                 ziel.appendChild(document.createTextNode('Angemeldet als: '));
                 const fett = document.createElement('strong');
@@ -102,7 +102,7 @@
         eyebrow.className = 'eyebrow';
         eyebrow.textContent = 'Beratungsstelle';
         const h1 = document.createElement('h1');
-        h1.textContent = 'SignNext Demo';
+        h1.textContent = 'SignNext';
         const main = document.createElement('main');
         main.id = 'app';
         const box = document.createElement('div');

@@ -42,28 +42,13 @@ class TestBeraterGegenEchtesBackend(DemoMail):
     def lauf(self, seite, ops):
         return lauf(basis=self.basis, kopf={"X-Forwarded-For": "127.0.0.1"}, seite=seite, ops=ops)
 
-    def test_vorgangsliste_beispiele_und_demo_vorgang(self):
-        o = self.lauf("/vorgaenge", [{"op": "klick_id", "id": "btn-demo-vorgang", "warte": 3000}])
+    def test_gegen_das_echte_backend_im_demo_kein_balken_keine_demo_karten(self):
+        o = self.lauf("/vorgaenge", [])
         b = o["start"]["berater"]
-        self.assertIsNone(b["banner"])                                                              # der Server meldet Demo, die Seite zeigt keinen Balken mehr
-        self.assertTrue(b["demo_bereich"])
-        self.assertEqual([a["href"] for a in b["pdf_links"]], ["/api/v1/demo/beispiel/" + n for n in ("anschreiben", "anschreiben-einzel", "protokoll-ehepaar", "protokoll-einzel")])
-        neu = o["schritte"][0]["zustand"]["berater"]
-        e = neu["demo_ergebnis"]
-        self.assertTrue(e["link"].startswith("https://signnext.example/u#"), e)
-        self.assertEqual(e["qr"]["tag"], "IMG")
-        self.assertTrue(unquote(e["qr"]["src"].split(",", 1)[1]).startswith("<svg"))
-        self.assertRegex(e["text"], r"Geburtsdatum \d\d\.\d\d\.\d{4} verlangt \(Eingabe: \d{6}\)")
-        self.assertGreaterEqual(neu["vorgang_karten"], 1)                                          # die Liste zeigt den neuen Vorgang
+        self.assertEqual((b["demo_elemente"], b["testversion_woerter"]), (0, False))                  # der Server meldet Demo, die Seite zeigt nichts davon
+        e = self.lauf("/einstellungen", [])["start"]["berater"]
+        self.assertEqual((e["demo_elemente"], e["testversion_woerter"]), (0, False))
         self.assertEqual(o["fehler_js"], [])
-
-    def test_testmail_geht_wirklich_an_die_gewaehlte_erlaubte_adresse(self):
-        o = self.lauf("/einstellungen", [{"op": "auswahl_id", "id": "demo-testadresse", "wert": EXTERN, "warte": 100}, {"op": "klick_id", "id": "btn-demo-testmail", "warte": 3000}])
-        t = o["start"]["berater"]["testmail"]
-        self.assertEqual(t["optionen"], sorted({MITGLIED, EXTERN}))
-        self.assertIn("nur an die erlaubten Testadressen", t["info"])
-        self.assertEqual(o["schritte"][1]["zustand"]["berater"]["testmail"]["erfolg"], "Die Testmail wurde an %s gesendet." % EXTERN)
-        self.assertEqual([n["an"] for n in self.srv.nachrichten], [[EXTERN]])                       # wirklich eine Mail, nur an diese Adresse
 
     ZUM_SENDEN = [{"op": "haken_id", "id": "angaben-stimmen", "warte": 50}, {"op": "submit_id", "id": "form-angaben", "warte": 3000}]
 
