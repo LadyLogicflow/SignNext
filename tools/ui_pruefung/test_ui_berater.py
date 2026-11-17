@@ -50,13 +50,16 @@ class TestDemoVorgaenge(unittest.TestCase):
         o = lauf(seite="/vorgaenge", api={"me": DEMO}, ops=[{"op": "klick_id", "id": "btn-demo-vorgang", "warte": 700}, {"op": "klick_sel", "sel": "#demo-ergebnis .link-kopieren", "warte": 200}])
         b = o["start"]["berater"]
         self.assertTrue(b["demo_bereich"])
-        self.assertEqual([(a["href"], a["download"]) for a in b["pdf_links"]],
-                         [("/api/v1/demo/beispiel/anschreiben", True), ("/api/v1/demo/beispiel/protokoll-ehepaar", True), ("/api/v1/demo/beispiel/protokoll-einzel", True)])
+        self.assertEqual([(a["href"], a["download"], a["text"]) for a in b["pdf_links"]],                       # die Liste kommt vom Server (GET /api/v1/demo)
+                         [("/api/v1/demo/beispiel/anschreiben", True, "Anschreiben"), ("/api/v1/demo/beispiel/anschreiben-einzel", True, "Anschreiben Einzelperson"),
+                          ("/api/v1/demo/beispiel/protokoll-ehepaar", True, "Protokoll Ehepaar"), ("/api/v1/demo/beispiel/protokoll-einzel", True, "Protokoll Einzelperson")])
         self.assertEqual(b["vorgang_karten"], 1)
         neu = o["schritte"][0]["zustand"]
         self.assertEqual([r for r in neu["requests"] if r["m"] == "POST"][0]["p"], "/api/v1/demo/vorgang")
         ergebnis = neu["berater"]["demo_ergebnis"]
         self.assertEqual((ergebnis["link"], ergebnis["link_nur_lesen"]), ("https://sn.example/u#demo8", True))
+        self.assertEqual(ergebnis["qr"]["tag"], "IMG")                                             # Link auch als QR (qr_svg vom Server)
+        self.assertEqual(unquote(ergebnis["qr"]["src"].split(",", 1)[1]), QR_SVG)
         self.assertIn("Demo-Vorgang 8 angelegt", ergebnis["text"])
         self.assertIn("Geburtsdatum 01.02.1960", ergebnis["text"])
         self.assertIn("Eingabe: 010260", ergebnis["text"])
@@ -64,6 +67,12 @@ class TestDemoVorgaenge(unittest.TestCase):
         kopiert = o["schritte"][1]["zustand"]
         self.assertEqual(kopiert["zwischenablage"], ["https://sn.example/u#demo8"])
         self.assertEqual(kopiert["berater"]["demo_ergebnis"]["kopieren"], "Kopiert!")
+
+    def test_nur_einfache_namen_werden_zu_beispiel_links(self):
+        info = {"demo": True, "versand": "aus", "testadressen": [], "mail_zugang_geprueft": True, "beispiele": ["neues-beispiel", "../geheim", "x y", "<b>", "ok-2"]}
+        o = lauf(seite="/vorgaenge", api={"me": DEMO, "demoInfo": info}, ops=[])
+        self.assertEqual([(a["href"], a["text"]) for a in o["start"]["berater"]["pdf_links"]],
+                         [("/api/v1/demo/beispiel/neues-beispiel", "neues-beispiel"), ("/api/v1/demo/beispiel/ok-2", "ok-2")])
 
     def test_ohne_demo_gibt_es_den_bereich_nicht(self):
         o = lauf(seite="/vorgaenge", ops=[])
@@ -126,15 +135,73 @@ class TestDemoVersenden(unittest.TestCase):
         o = lauf(seite="/pruefung?id=1", ops=self.VERSENDEN)
         self.assertIsNone(o["schritte"][1]["zustand"]["berater"]["versand_box"])
 
-    def test_scheitert_die_mail_im_demo_bleibt_der_fehler_und_der_link_steht_trotzdem_da(self):
-        fehler = {"status": 502, "body": {"error": "mail_fehler", "meldung": "Die Mail konnte nicht gesendet werden.", "fallback": {"link": "https://sn.example/u#fallback", "qr_svg": QR_SVG}}}
-        o = lauf(seite="/pruefung?id=1", api={"me": DEMO, "versenden": fehler}, ops=self.VERSENDEN)
+    def test_scheitert_die_mail_im_demo_wird_ohne_mail_fortfahren_angeboten(self):
+        fehler = {"status": 502, "body": {"error": "mail_fehler", "meldung": "Die Mail konnte nicht gesendet werden.", "fallback": "ohne_mail"}}
+        ohne = {"status": 200, "body": {"ok": True, "demo": {"link": "https://sn.example/u#ohne", "qr_svg": QR_SVG, "ohne_mail": True, "geburtsdatum_hinweis": "Geburtsdatum für den Link: 01.02.60"}}}
+        o = lauf(seite="/pruefung?id=1", api={"me": DEMO, "versenden": fehler, "versendenOhneMail": ohne},
+                 ops=self.VERSENDEN + [{"op": "klick_id", "id": "btn-ohne-mail", "warte": 600}])
         z = o["schritte"][1]["zustand"]["berater"]
         self.assertEqual(z["versand_fehler"], "Die Mail konnte nicht gesendet werden.")           # der Fehler wie bisher
-        self.assertEqual(z["versand_box"]["link"], "https://sn.example/u#fallback")
-        self.assertEqual(z["versand_box"]["qr"]["tag"], "IMG")
-        ohne = lauf(seite="/pruefung?id=1", api={"me": DEMO, "versenden": {"status": 502, "body": {"error": "mail_fehler", "meldung": "Die Mail konnte nicht gesendet werden."}}}, ops=self.VERSENDEN)
-        self.assertIsNone(ohne["schritte"][1]["zustand"]["berater"]["versand_box"])                # ohne fallback keine Box
+        self.assertEqual(z["ohne_mail"], {"knopf_gesperrt": False})                                # und das Angebot "Ohne Mail fortfahren"
+        self.assertIsNone(z["versand_box"])                                                        # noch kein Link, es wurde nichts freigegeben
+        gesendet = [r for r in o["schritte"][1]["zustand"]["requests"] if r["p"].endswith("/versenden")]
+        self.assertEqual(gesendet[0]["body"], {"bestaetigt": True})
+        danach = o["schritte"][2]
+        zweiter = [r for r in danach["zustand"]["requests"] if r["p"].endswith("/versenden")][0]
+        self.assertEqual((zweiter["m"], zweiter["body"]), ("POST", {"bestaetigt": True, "ohne_mail": True}))     # erneut senden mit ohne_mail
+        b = danach["zustand"]["berater"]
+        self.assertEqual(b["versand_box"]["link"], "https://sn.example/u#ohne")
+        self.assertIn("(ohne Mail)", b["versand_box"]["text"])
+        self.assertEqual(unquote(b["versand_box"]["qr"]["src"].split(",", 1)[1]), QR_SVG)
+        self.assertIsNone(b["ohne_mail"])                                                          # Angebot verschwindet
+        self.assertIsNone(b["versand_fehler"])
+        self.assertIn("Ohne Mail freigegeben", b["versand_hinweise"])
+        self.assertTrue(b["versenden_gesperrt"])                                                   # nicht ein zweites Mal senden
+
+    def test_anderer_fehler_im_demo_bietet_kein_ohne_mail_an(self):
+        o = lauf(seite="/pruefung?id=1", api={"me": DEMO, "versenden": {"status": 409, "body": {"error": "versand_gesperrt", "meldung": "Der Versand ist gesperrt."}}}, ops=self.VERSENDEN)
+        z = o["schritte"][1]["zustand"]["berater"]
+        self.assertEqual(z["versand_fehler"], "Der Versand ist gesperrt.")
+        self.assertIsNone(z["ohne_mail"])
+        self.assertIsNone(z["versand_box"])
+
+    def test_fehler_beim_ohne_mail_bleibt_im_text(self):
+        fehler = {"status": 502, "body": {"error": "mail_fehler", "meldung": "Die Mail konnte nicht gesendet werden.", "fallback": "ohne_mail"}}
+        o = lauf(seite="/pruefung?id=1", api={"me": DEMO, "versenden": fehler, "versendenOhneMail": {"status": 409, "body": {"error": "x", "meldung": "Ohne Mail nicht möglich."}}},
+                 ops=self.VERSENDEN + [{"op": "klick_id", "id": "btn-ohne-mail", "warte": 500}])
+        b = o["schritte"][2]["zustand"]["berater"]
+        self.assertEqual(b["versand_fehler"], "Ohne Mail nicht möglich.")
+        self.assertEqual(b["ohne_mail"], {"knopf_gesperrt": False})                                # man kann es erneut versuchen
+        self.assertIsNone(b["versand_box"])
+        self.assertEqual(o["schritte"][2]["zustand"]["alerts"], [])
+
+
+@unittest.skipUnless(BEREIT, HINWEIS)
+class TestDemoMailZugang(unittest.TestCase):
+    SPEICHERN = [{"op": "submit_id", "id": "form-mail", "warte": 600}]
+
+    def test_hinweise_aus_dem_server_werden_nur_angezeigt(self):
+        zugang = {"konfiguriert": True, "host": "smtp.example", "port": 587, "benutzer": "konto", "absender_name": "BSt", "absender_adresse": "noreply@example.org",
+                  "hinweise": ["Der Benutzername weicht von der Absenderadresse ab.", "Bitte prüfen Sie die Domain."]}
+        o = lauf(seite="/mail-zugang", api={"me": DEMO, "mailZugang": zugang}, ops=[])
+        self.assertEqual(o["start"]["berater"]["mail_hinweise"], ["Der Benutzername weicht von der Absenderadresse ab.", "Bitte prüfen Sie die Domain."])
+        ohne = lauf(seite="/mail-zugang", ops=[])
+        self.assertIsNone(ohne["start"]["berater"]["mail_hinweise"])                               # ohne hinweise: nichts
+
+    def test_422_mit_feld_steht_am_feld(self):
+        fehler = {"status": 422, "body": {"error": "eingabe_ungueltig", "feld": "absender_adresse", "meldung": "Die Absenderadresse muss zur Domain des Benutzers passen."}}
+        o = lauf(seite="/mail-zugang", api={"me": DEMO, "mailPut": fehler}, ops=self.SPEICHERN)
+        z = o["schritte"][0]["zustand"]
+        self.assertEqual([r["m"] for r in z["requests"] if r["p"].endswith("/mail-zugang")], ["PUT"])
+        self.assertEqual(z["berater"]["absender_fehler"], "Die Absenderadresse muss zur Domain des Benutzers passen.")      # genau am Feld
+        self.assertIsNone(z["berater"]["speichern_fehler"])
+
+    def test_fehler_ohne_feld_bleibt_im_formularfehler(self):
+        fehler = {"status": 503, "body": {"error": "nicht_bereit", "meldung": "Der Dienst ist nicht vollständig eingerichtet."}}
+        o = lauf(seite="/mail-zugang", api={"me": DEMO, "mailPut": fehler}, ops=self.SPEICHERN)
+        b = o["schritte"][0]["zustand"]["berater"]
+        self.assertEqual(b["speichern_fehler"], "Der Dienst ist nicht vollständig eingerichtet.")
+        self.assertIsNone(b["absender_fehler"])
 
 
 if __name__ == "__main__":

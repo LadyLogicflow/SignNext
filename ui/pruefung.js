@@ -17,6 +17,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('form-angaben').addEventListener('submit', saveAngaben);
     document.getElementById('erinnerungen-aktiv').addEventListener('change', saveErinnerungen);
     document.getElementById('btn-versenden').addEventListener('click', versenden);
+    document.getElementById('btn-ohne-mail').addEventListener('click', ohneMailFortfahren);
 
     // Live-Validation
     document.getElementById('geburtsdatum').addEventListener('input', validateGeburtsdatum);
@@ -252,17 +253,42 @@ async function versenden() {
 
     try {
         const r = await api('POST', `/vorgaenge/${vorgangId}/versenden`, {bestaetigt: true});
-        if (r && r.demo) {
-            Berater.linkBoxZeigen(document.getElementById('demo-link-box'), {titel: 'Demo: Zugangslink am Bildschirm', link: r.demo.link, qr_svg: r.demo.qr_svg, hinweis: r.demo.geburtsdatum_hinweis});
-        }
+        zeigeDemoLink(r);
         alert('Link wurde versendet!');
         document.getElementById('versand-hinweise').innerHTML = '<p class="success-text">✓ Link erfolgreich versendet</p>';
         document.getElementById('btn-versenden').disabled = true;
     } catch (err) {
         showError('versand-error', err.message);
-        if (err.daten && err.daten.fallback) {            // Demo: die Mail ging nicht, der Link steht trotzdem am Bildschirm
-            Berater.linkBoxZeigen(document.getElementById('demo-link-box'), {titel: 'Demo: Zugangslink als Ersatz', link: err.daten.fallback.link, qr_svg: err.daten.fallback.qr_svg});
-        }
+        // Demo: die Mail ging nicht; der Server bietet an, ohne Mail fortzufahren (fallback: "ohne_mail"), der Link steht dann am Bildschirm
+        document.getElementById('ohne-mail').classList.toggle('hidden', !(err.daten && err.daten.fallback === 'ohne_mail'));
+    }
+}
+
+// Demo: Link und QR am Bildschirm, mit Mail (ohne_mail false) und ohne Mail (ohne_mail true)
+function zeigeDemoLink(antwort) {
+    if (!(antwort && antwort.demo)) return;
+    Berater.linkBoxZeigen(document.getElementById('demo-link-box'), {
+        titel: antwort.demo.ohne_mail ? 'Demo: Zugangslink am Bildschirm (ohne Mail)' : 'Demo: Zugangslink am Bildschirm',
+        link: antwort.demo.link,
+        qr_svg: antwort.demo.qr_svg,
+        hinweis: antwort.demo.geburtsdatum_hinweis
+    });
+}
+
+async function ohneMailFortfahren() {
+    const knopf = document.getElementById('btn-ohne-mail');
+    hideError('versand-error');
+    knopf.disabled = true;
+    try {
+        const r = await api('POST', `/vorgaenge/${vorgangId}/versenden`, {bestaetigt: true, ohne_mail: true});
+        zeigeDemoLink(r);
+        document.getElementById('ohne-mail').classList.add('hidden');
+        document.getElementById('versand-hinweise').textContent = 'Ohne Mail freigegeben: Der Link steht unten am Bildschirm. Bitte geben Sie ihn selbst weiter.';
+        document.getElementById('btn-versenden').disabled = true;
+    } catch (err) {
+        showError('versand-error', err.message);
+    } finally {
+        knopf.disabled = false;
     }
 }
 

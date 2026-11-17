@@ -11,6 +11,7 @@ const SEITEN = {'/u': 'unterschrift.html', '/h': 'handy.html', '/vorgaenge': 'vo
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 const QR_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="#000"/></svg>';
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const extern = !!arg.basis;           // Modus mit echtem Server (arg.basis, arg.cookie): kein nachgespielter Server, die Aufrufe werden nur mitgeschrieben
 
 // ----- nachgespielte Schnittstelle (Standardwerte, je Szenario über arg.api überschreibbar) -----
 const cfg = Object.assign({
@@ -28,9 +29,12 @@ const cfg = Object.assign({
     handyUnterschriftFehler: null,
     // Berater-Seiten und Demo
     me: {status: 200, body: {email: 'berater@example.org', demo: false}},
-    demoInfo: {demo: true, versand: 'testadressen', testadressen: ['a@example.org', 'b@example.org'], mail_zugang_geprueft: true},
+    demoInfo: {demo: true, versand: 'testadressen', testadressen: ['a@example.org', 'b@example.org'], mail_zugang_geprueft: true, beispiele: ['anschreiben', 'anschreiben-einzel', 'protokoll-ehepaar', 'protokoll-einzel']},
     testmailFehler: null,
     versenden: {status: 200, body: {ok: true}},
+    versendenOhneMail: {status: 200, body: {ok: true}},
+    mailZugang: {konfiguriert: true, geprueft_am: '2026-11-01T10:00:00Z', host: 'smtp.example', port: 587, benutzer: 'konto', absender_name: 'Beratungsstelle', absender_adresse: 'noreply@example.org', bcc_an_absender: false},
+    mailPut: {status: 200, body: {ok: true}},
 }, arg.api || {});
 const zustand = {person: 1, unterschrieben: [], handoffAbfragen: 0, abgeholt: false, handoffNummer: 0, vorgaenge: [{id: 1, status: 'bereit', erstellt: '2026-11-17T10:00:00Z'}]};
 const aufrufe = [];
@@ -101,20 +105,21 @@ function api(req, res, pfad, body) {
     if (pfad === '/api/v1/demo/vorgang' && m === 'POST') {
         const id = 7 + zustand.vorgaenge.length;
         zustand.vorgaenge.push({id, status: 'bereit', erstellt: '2026-11-17T11:00:00Z'});
-        return senden(res, 200, {vorgang_id: id, link: 'https://sn.example/u#demo' + id, geburtsdatum: '01.02.1960', code: '010260'});
+        return senden(res, 200, {vorgang_id: id, link: 'https://sn.example/u#demo' + id, geburtsdatum: '01.02.1960', code: '010260', personen: 2, qr_svg: cfg.qrSvg});
     }
     if (pfad === '/api/v1/demo/testmail' && m === 'POST') {
         if (cfg.testmailFehler) return fehler(cfg.testmailFehler.status, cfg.testmailFehler.error, cfg.testmailFehler.meldung);
         return senden(res, 200, {ergebnis: 'gesendet'});
     }
     if (pfad === '/api/v1/einstellungen') return senden(res, 200, {verantwortlicher: 'Beratungsstelle Beispiel, Musterstr. 1', datenschutz_link: 'https://beispiel.example/datenschutz', aufbewahrung_tage: 90, mitglied_download_link: false});
-    if (pfad === '/api/v1/mail-zugang' && m === 'GET') return senden(res, 200, {konfiguriert: true, geprueft_am: '2026-11-01T10:00:00Z', host: 'smtp.example'});
+    if (pfad === '/api/v1/mail-zugang' && m === 'GET') return senden(res, 200, cfg.mailZugang);
+    if (pfad === '/api/v1/mail-zugang' && m === 'PUT') return senden(res, cfg.mailPut.status, cfg.mailPut.body);
     if (/^\/api\/v1\/vorgaenge\/\d+\/pruefung$/.test(pfad)) {
         return senden(res, 200, {status: 'bereit', name: {wert: 'Erika Muster', herkunft: 'protokoll'}, geburtsdatum: {gesetzt: true, wert: '01.02.60', herkunft: 'gesetzt'},
             email: {wert: 'erika@example.org', herkunft: 'manuell'}, personen: {wert: 1, herkunft: 'protokoll'}, versandbereit_pdf: true, fehlend: [], erinnerungen_aus: false});
     }
     if (/^\/api\/v1\/vorgaenge\/\d+\/dokument$/.test(pfad)) { res.writeHead(200, {'Content-Type': 'application/pdf'}); return res.end('%PDF-1.4'); }
-    if (/^\/api\/v1\/vorgaenge\/\d+\/versenden$/.test(pfad) && m === 'POST') return senden(res, cfg.versenden.status, cfg.versenden.body);
+    if (/^\/api\/v1\/vorgaenge\/\d+\/versenden$/.test(pfad) && m === 'POST') { const v = body.ohne_mail ? cfg.versendenOhneMail : cfg.versenden; return senden(res, v.status, v.body); }
     return fehler(404, 'nicht_gefunden', 'unbekannt');
 }
 
@@ -136,8 +141,8 @@ const server = http.createServer((req, res) => {
 });
 
 async function main() {
-    await new Promise(r => server.listen(0, '127.0.0.1', r));
-    const BASE = `http://127.0.0.1:${server.address().port}`;
+    if (!extern) await new Promise(r => server.listen(0, '127.0.0.1', r));
+    const BASE = extern ? arg.basis : `http://127.0.0.1:${server.address().port}`;
     const alerts = [];
     const zwischenablage = [];
     const zeichnung = {striche: 0, geleert: 0, bilder: 0, stil: null, capture: 0};
@@ -149,7 +154,17 @@ async function main() {
         beforeParse(win) {
             win.fetch = async (u, o = {}) => {
                 const url = new URL(u, BASE);
-                return fetch(url, {method: o.method || 'GET', headers: o.headers, body: o.body});
+                const headers = Object.assign({}, o.headers || {});
+                if (extern) {
+                    if (arg.cookie) headers.Cookie = 'bst_session=' + arg.cookie;
+                    Object.assign(headers, arg.kopf || {});              // z. B. X-Forwarded-For des Proxys im Offen-Modus der Demo
+                    if (url.pathname.startsWith('/api/')) {
+                        let body = null;
+                        try { body = o.body ? JSON.parse(o.body) : null; } catch (e) { body = null; }
+                        aufrufe.push({m: o.method || 'GET', p: url.pathname, body});
+                    }
+                }
+                return fetch(url, {method: o.method || 'GET', headers, body: o.body});
             };
             win.alert = (t) => { alerts.push(String(t)); };
             Object.defineProperty(win.navigator, 'clipboard', {value: {writeText: async (t) => { zwischenablage.push(String(t)); }}});
@@ -214,6 +229,12 @@ async function main() {
                 erfolg: sichtbar('demo-testmail-erfolg') ? text('demo-testmail-erfolg') : null,
                 fehler: sichtbar('demo-testmail-fehler') ? text('demo-testmail-fehler') : null} : null,
             versand_box: ergebnis('demo-link-box'),
+            ohne_mail: sichtbar('ohne-mail') ? {knopf_gesperrt: doc.getElementById('btn-ohne-mail').disabled} : null,
+            versand_hinweise: doc.getElementById('versand-hinweise') ? doc.getElementById('versand-hinweise').textContent.trim() : null,
+            versenden_gesperrt: doc.getElementById('btn-versenden') ? doc.getElementById('btn-versenden').disabled : null,
+            mail_hinweise: sichtbar('mail-hinweise') ? [...doc.querySelectorAll('#mail-hinweise p')].map(p => p.textContent) : null,
+            absender_fehler: sichtbar('absender-adresse-error') ? text('absender-adresse-error') : null,
+            speichern_fehler: sichtbar('save-error') ? text('save-error') : null,
             versand_fehler: sichtbar('versand-error') ? text('versand-error') : null,
             container_text: doc.querySelector('.container') ? doc.querySelector('.container').textContent.replace(/\s+/g, ' ').trim().slice(0, 200) : null,
         };
@@ -286,6 +307,8 @@ async function main() {
         if (op.op === 'uebertragen') klick('btn-uebertragen');
         if (op.op === 'neu_laden_klick') klick('btn-neu-laden');
         if (op.op === 'klick_id') klick(op.id);
+        if (op.op === 'wert_id') { const e = doc.getElementById(op.id); e.value = op.wert; e.dispatchEvent(new win.Event('input', {bubbles: true})); e.dispatchEvent(new win.Event('change', {bubbles: true})); }
+        if (op.op === 'submit_id') doc.getElementById(op.id).dispatchEvent(new win.Event('submit', {bubbles: true, cancelable: true}));
         if (op.op === 'klick_sel') doc.querySelector(op.sel).click();
         if (op.op === 'haken_id') doc.getElementById(op.id).checked = op.an !== false;
         if (op.op === 'auswahl_id') { const e = doc.getElementById(op.id); e.value = op.wert; e.dispatchEvent(new win.Event('change', {bubbles: true})); }
@@ -301,6 +324,6 @@ let out;
     let ergebnis;
     try { ergebnis = await main(); ergebnis.ok = true; } catch (e) { ergebnis = {ok: false, fehler: String((e && e.stack) || e)}; }
     console.log('RESULT ' + JSON.stringify(ergebnis));
-    server.close();
+    if (!extern) server.close();
     process.exit(0);
 })();

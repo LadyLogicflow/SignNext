@@ -117,6 +117,32 @@ async function demoBereich() {
     if (!(await Berater.istDemo())) return;
     document.getElementById('demo-bereich').classList.remove('hidden');
     document.getElementById('btn-demo-vorgang').addEventListener('click', demoVorgangAnlegen);
+    try {
+        beispielLinks((await api('GET', '/demo')).beispiele);
+    } catch (err) {
+        document.getElementById('demo-beispiele').textContent = 'nicht verfügbar';
+    }
+}
+
+const BEISPIEL_TEXT = {
+    'anschreiben': 'Anschreiben',
+    'anschreiben-einzel': 'Anschreiben Einzelperson',
+    'protokoll-ehepaar': 'Protokoll Ehepaar',
+    'protokoll-einzel': 'Protokoll Einzelperson'
+};
+
+// Die Liste kommt vom Server; nur einfache Namen werden zu Links (feste Adresse /api/v1/demo/beispiel/<name>)
+function beispielLinks(namen) {
+    const ziel = document.getElementById('demo-beispiele');
+    ziel.textContent = '';
+    (Array.isArray(namen) ? namen : []).filter(n => typeof n === 'string' && /^[a-z0-9-]{1,40}$/.test(n)).forEach((name, i) => {
+        if (i > 0) ziel.appendChild(document.createTextNode(' · '));
+        const a = document.createElement('a');
+        a.href = '/api/v1/demo/beispiel/' + name;
+        a.setAttribute('download', '');
+        a.textContent = BEISPIEL_TEXT[name] || name;
+        ziel.appendChild(a);
+    });
 }
 
 async function demoVorgangAnlegen() {
@@ -129,6 +155,7 @@ async function demoVorgangAnlegen() {
         Berater.linkBoxZeigen(document.getElementById('demo-ergebnis'), {
             titel: `Demo-Vorgang ${r.vorgang_id} angelegt`,
             link: r.link,
+            qr_svg: r.qr_svg,
             hinweis: `Zum Öffnen des Links wird das Geburtsdatum ${r.geburtsdatum} verlangt (Eingabe: ${r.code}).`
         });
         await loadVorgaenge();
