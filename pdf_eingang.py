@@ -51,7 +51,23 @@ def _speichern(mandant_ref: str, vorgang_id: int, rolle: str, daten: bytes, e: d
     return db.dokument_speichern(mandant_ref, vorgang_id, rolle, daten, hashlib.sha256(daten).hexdigest(), e["seiten"], e["stellen"])
 
 
-def anlegen(mandant_ref: str, dateien: list) -> dict:
+NAME_MAX = 120
+
+
+def name_aus_dateiname(dateiname) -> str | None:
+    """Vorgangsname aus dem Dateinamen: Pfad und Endung .pdf weg, Steuerzeichen raus, auf NAME_MAX gekürzt. Leer -> None. Enthält oft Personennamen: nie in Audit, Log oder Mail."""
+    import unicodedata
+    if not isinstance(dateiname, str):
+        return None
+    n = dateiname.replace("\\", "/").rsplit("/", 1)[-1]
+    if n.lower().endswith(".pdf"):
+        n = n[:-4]
+    n = "".join(" " if unicodedata.category(ch)[0] in ("C", "Z") else ch for ch in n)
+    n = " ".join(n.split())[:NAME_MAX].strip()
+    return n or None
+
+
+def anlegen(mandant_ref: str, dateien: list, namen: list | None = None) -> dict:
     """1 oder 2 PDFs (Bytes) → neuer Vorgang. Wirft Fehler(code). Der Typ kommt aus dem Inhalt, nie aus dem Dateinamen.
     Zwei Dokumente müssen je eines vom Typ A und B sein. Bei 2 von 3 Treffern wird sofort zusammengeführt, sonst muss die Beratungsstelle bestätigen."""
     if not 1 <= len(dateien) <= 2:
@@ -61,6 +77,9 @@ def anlegen(mandant_ref: str, dateien: list) -> dict:
     if len(dateien) == 2 and typen != ["A", "B"]:
         raise Fehler("typen_passen_nicht")
     by = {e["typ"]: (d, e) for d, e in zip(dateien, ergebnisse)}
+    namen = list(namen or []) + [None] * len(dateien)
+    name_je_typ = {e["typ"]: name_aus_dateiname(n) for e, n in zip(ergebnisse, namen)}
+    name = name_je_typ.get("A") or name_je_typ.get("B")                           # Protokoll, ersatzweise Anschreiben
     vorgang_id = db.vorgang_anlegen(mandant_ref)
     try:
         for typ, (d, e) in sorted(by.items()):
@@ -74,11 +93,11 @@ def anlegen(mandant_ref: str, dateien: list) -> dict:
             status = "bereit" if ab["status"] == "automatisch" else "bestaetigung_noetig"
             if status == "bereit":
                 _zusammenfuehren(mandant_ref, vorgang_id, by)
-        db.vorgang_aendern(mandant_ref, vorgang_id, status=status, personen=personen, abgleich=json.dumps(ab))
+        db.vorgang_aendern(mandant_ref, vorgang_id, status=status, personen=personen, abgleich=json.dumps(ab), name=name)
     except Exception:
         loeschen(mandant_ref, vorgang_id)
         raise
-    return {"vorgang_id": vorgang_id, "status": status, "abgleich": ab, "personen": personen,
+    return {"vorgang_id": vorgang_id, "status": status, "name": name, "abgleich": ab, "personen": personen,
             "dokumente": [{"rolle": t, "seiten": e["seiten"], "stellen": len(e["stellen"])} for t, (_, e) in sorted(by.items())],
             "hinweise": sorted({h for _, (_, e) in by.items() for h in e["hinweise"]}), "mail_erkannt": "mail" in by.get("B", (None, {"werte": {}}))[1]["werte"]}
 

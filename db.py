@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS vorgang (
     mandant_ref TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'neu',
     erstellt TEXT NOT NULL,
+    name TEXT,
     personen INTEGER,
     abgleich TEXT,
     bestaetigt_von TEXT,
@@ -290,7 +291,7 @@ def init(pfad: str) -> None:
                             ("abschluss_versuche", "INTEGER NOT NULL DEFAULT 0"), ("abgeschlossen_am", "TEXT"), ("aufbewahrung_tage", "INTEGER"), ("aufbewahrung_bis", "TEXT"),
                             ("erinnerungen_aus", "INTEGER NOT NULL DEFAULT 0"), ("link_sperre_gemeldet", "INTEGER"), ("bst_info_am", "TEXT"), ("mitglied_mail_am", "TEXT"),
                             ("mitglied_mail_versuche", "INTEGER NOT NULL DEFAULT 0"), ("vorwarnung_am", "TEXT"), ("geloescht_am", "TEXT"), ("geloescht_grund", "TEXT"),
-                            ("gezaehlt_am", "TEXT"), ("zaehlmonat", "TEXT")):
+                            ("gezaehlt_am", "TEXT"), ("zaehlmonat", "TEXT"), ("name", "TEXT")):
             if spalte not in vorhanden:
                 c.execute("ALTER TABLE vorgang ADD COLUMN %s %s" % (spalte, typ))
         for tabelle, spalte, typ in (("link", "token_enc", "TEXT"), ("stelle_einstellung", "aufbewahrung_tage", "INTEGER"),
@@ -343,9 +344,9 @@ REFERENZ = re.compile(r"^[A-Za-z0-9_-]{1,64}\Z")
 VORGANG_FELDER = ("status", "personen", "abgleich", "bestaetigt_von", "bestaetigt_am", "email_enc", "email_herkunft", "code_hmac", "code_kid", "datum_herkunft",
                   "personen_herkunft", "versendet_am", "versand_fehler", "versenden_seit", "unterschrieben_am", "abschluss_seit", "abschluss_versuche", "abgeschlossen_am",
                   "aufbewahrung_tage", "aufbewahrung_bis", "erinnerungen_aus", "link_sperre_gemeldet", "bst_info_am", "mitglied_mail_am", "mitglied_mail_versuche",
-                  "vorwarnung_am", "geloescht_am", "geloescht_grund", "gezaehlt_am", "zaehlmonat")
+                  "vorwarnung_am", "geloescht_am", "geloescht_grund", "gezaehlt_am", "zaehlmonat", "name")
 # Felder, die nach außen gehen dürfen (nie email_enc, code_hmac, code_kid)
-VORGANG_OEFFENTLICH = ("id", "status", "erstellt", "personen", "abgleich", "bestaetigt_von", "bestaetigt_am", "email_herkunft", "datum_herkunft", "personen_herkunft",
+VORGANG_OEFFENTLICH = ("id", "status", "erstellt", "name", "personen", "abgleich", "bestaetigt_von", "bestaetigt_am", "email_herkunft", "datum_herkunft", "personen_herkunft",
                        "versendet_am", "versand_fehler", "unterschrieben_am", "abgeschlossen_am", "aufbewahrung_bis", "erinnerungen_aus", "geloescht_am", "geloescht_grund")
 
 
@@ -396,11 +397,21 @@ def vorgang_status_wechseln(mandant_ref: str, vorgang_id: int, von: str, nach: s
                          (nach, *felder.values(), int(vorgang_id), mandant_ref, von)).rowcount == 1
 
 
-def vorgaenge_liste(mandant_ref: str) -> list:
+def vorgaenge_liste(mandant_ref: str, ohne_geloeschte: bool = False) -> list:
     with verbindung() as c:
-        zeilen = c.execute("SELECT id, status, erstellt FROM vorgang WHERE mandant_ref=? ORDER BY id DESC LIMIT 500",
-                           (mandant_ref,)).fetchall()
-    return [dict(z) for z in zeilen]
+        zeilen = c.execute("SELECT v.id, v.status, v.erstellt, v.name, v.personen, "
+                           "(SELECT l.gesperrt FROM link l WHERE l.vorgang_id=v.id AND l.mandant_ref=v.mandant_ref ORDER BY l.id DESC LIMIT 1) AS l_gesperrt, "
+                           "(SELECT l.verbraucht_am FROM link l WHERE l.vorgang_id=v.id AND l.mandant_ref=v.mandant_ref ORDER BY l.id DESC LIMIT 1) AS l_verbraucht, "
+                           "(SELECT l.laeuft_ab FROM link l WHERE l.vorgang_id=v.id AND l.mandant_ref=v.mandant_ref ORDER BY l.id DESC LIMIT 1) AS l_ab "
+                           "FROM vorgang v WHERE v.mandant_ref=? AND (?=0 OR v.status<>'geloescht') ORDER BY v.id DESC LIMIT 500", (mandant_ref, int(bool(ohne_geloeschte)))).fetchall()
+    jetzt = jetzt_text()
+    liste = []
+    for z in zeilen:
+        d = {k: z[k] for k in ("id", "status", "erstellt", "name", "personen")}
+        d["link_laeuft_ab"] = z["l_ab"]
+        d["link_status"] = None if z["l_ab"] is None else _link_status_aus({"verbraucht_am": z["l_verbraucht"], "gesperrt": z["l_gesperrt"], "laeuft_ab": z["l_ab"]}, jetzt)
+        liste.append(d)
+    return liste
 
 
 def dokument_speichern(mandant_ref: str, vorgang_id: int, rolle: str, daten: bytes, sha256: str, seiten: int, stellen: list) -> int:
@@ -443,7 +454,7 @@ def dokument_bytes(mandant_ref: str, vorgang_id: int, rolle: str) -> bytes | Non
 
 
 MANDANTENTABELLEN = ("download_log", "download_link", "erinnerung", "sitzung", "unterschrift", "zugriff_log", "dokument", "link", "versand", "mail_zugang",
-                     "stelle_einstellung", "stelle_tarif", "audit_log")
+                     "stelle_einstellung", "stelle_tarif", "audit_log", "handoff")
 # Tabellen mit mandant_ref, die bei der Löschung einer Beratungsstelle BLEIBEN: das Löschprotokoll (nur Zahlen, Nachweis der Löschung). Wer das ändern will (Irony prüft),
 # setzt LOESCHPROTOKOLL_BLEIBT auf False: dann wird es wie alle anderen Tabellen mitgelöscht, ohne weitere Änderung.
 LOESCHPROTOKOLL_BLEIBT = True
@@ -485,7 +496,7 @@ def mandant_loeschen(mandant_ref: str) -> dict:
         if ZAEHLEINTRAG_BLEIBT:
             zahlen["vorgang"] = c.execute("DELETE FROM vorgang WHERE mandant_ref=? AND gezaehlt_am IS NULL", (mandant_ref,)).rowcount
             zahlen["zaehleintraege"] = c.execute("UPDATE vorgang SET status='geloescht', geloescht_am=COALESCE(geloescht_am, ?), geloescht_grund=COALESCE(geloescht_grund, 'vertragsende'), "
-                                                 "email_enc=NULL, code_hmac=NULL, code_kid=NULL, abgleich=NULL, bestaetigt_von=NULL, email_herkunft=NULL, datum_herkunft=NULL, "
+                                                 "name=NULL, email_enc=NULL, code_hmac=NULL, code_kid=NULL, abgleich=NULL, bestaetigt_von=NULL, email_herkunft=NULL, datum_herkunft=NULL, "
                                                  "personen_herkunft=NULL, versand_fehler=NULL WHERE mandant_ref=? AND gezaehlt_am IS NOT NULL", (jetzt(), mandant_ref)).rowcount
         else:
             zahlen["vorgang"] = c.execute("DELETE FROM vorgang WHERE mandant_ref=?", (mandant_ref,)).rowcount
@@ -517,8 +528,10 @@ def link_status(mandant_ref: str, vorgang_id: int) -> str | None:
         zeilen = c.execute("SELECT gesperrt, verbraucht_am, laeuft_ab FROM link WHERE mandant_ref=? AND vorgang_id=? ORDER BY id DESC", (mandant_ref, int(vorgang_id))).fetchall()
     if not zeilen:
         return None
-    jetzt = jetzt_text()
-    z = zeilen[0]
+    return _link_status_aus(zeilen[0], jetzt_text())
+
+
+def _link_status_aus(z, jetzt: str) -> str:
     if z["verbraucht_am"]:
         return "verbraucht"
     if z["gesperrt"]:

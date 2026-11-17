@@ -6,6 +6,7 @@ from flask import Blueprint, g, jsonify, request
 
 import config
 import db
+import loeschen
 import mail_zugang
 import pdf_eingang
 import pruefung
@@ -31,7 +32,26 @@ def me():
 @bp.get("/vorgaenge")
 @anmeldung_pflicht()
 def vorgaenge():
-    return jsonify({"vorgaenge": db.vorgaenge_liste(g.nutzer["mandant_ref"])})
+    return jsonify({"vorgaenge": db.vorgaenge_liste(g.nutzer["mandant_ref"], ohne_geloeschte=True), "status_texte": STATUS_TEXTE})
+
+
+@bp.delete("/vorgaenge/<int:vorgang_id>")
+@anmeldung_pflicht()
+def vorgang_loeschen(vorgang_id):
+    daten = request.get_json(silent=True)
+    if not isinstance(daten, dict) or set(daten) != {"bestaetigt"} or daten["bestaetigt"] is not True:
+        return jsonify({"error": "bestaetigung_fehlt", "meldung": "Bitte ausdrücklich bestätigen (bestaetigt: true)."}), 400
+    mandant = g.nutzer["mandant_ref"]
+    v = db.vorgang_lesen(mandant, vorgang_id)
+    if v is None or v["status"] == "geloescht":
+        return jsonify({"error": "nicht_gefunden"}), 404
+    if v["status"] in ("abschluss_laeuft", "versenden"):
+        return jsonify({"error": "abschluss_laeuft" if v["status"] == "abschluss_laeuft" else "versand_laeuft",
+                        "meldung": "Der Vorgang wird gerade bearbeitet und kann jetzt nicht gelöscht werden. Bitte in einigen Minuten erneut versuchen."}), 409
+    if loeschen.vorgang_loeschen(mandant, vorgang_id, "storno") is None:
+        return jsonify({"error": "nicht_gefunden"}), 404
+    audit("vorgang_geloescht_durch_beratungsstelle", "id=%d" % vorgang_id)
+    return jsonify({"ok": True})
 
 
 @bp.get("/vorgaenge/<int:vorgang_id>")
@@ -45,6 +65,20 @@ def vorgang(vorgang_id):
     v["dokumente"] = [{k: d[k] for k in ("id", "rolle", "seiten", "groesse", "sha256", "stellen")} for d in db.dokumente_liste(g.nutzer["mandant_ref"], vorgang_id)]
     return jsonify(v)
 
+
+STATUS_TEXTE = {
+    "neu": "Angelegt, noch nicht geprüft",
+    "bestaetigung_noetig": "Abgleich bitte bestätigen",
+    "bereit": "Bereit zum Versand",
+    "versenden": "Wird gerade versendet",
+    "versendet": "Link versendet, wartet auf Unterschrift",
+    "versand_unklar": "Versand unklar, bitte im Postfach prüfen",
+    "unterschrieben": "Unterschrieben, wird abgeschlossen",
+    "abschluss_laeuft": "Wird abgeschlossen",
+    "abschluss_fehlgeschlagen": "Abschluss fehlgeschlagen",
+    "abgeschlossen": "Abgeschlossen",
+    "geloescht": "Gelöscht",
+}
 
 MELDUNGEN = {
     "kontingent_erreicht": "Das Kontingent für diesen Monat ist erreicht. Bitte wenden Sie sich an den Betreiber.",
@@ -109,12 +143,13 @@ def vorgang_anlegen():
         n = c.execute("SELECT COUNT(*) FROM audit_log WHERE mandant_ref=? AND aktion='vorgang_angelegt' AND zeit>=?", (mandant, seit)).fetchone()[0]
     if n >= pdf_eingang.UPLOADS_JE_STUNDE:
         return _fehler(pdf_eingang.Fehler("zu_viele_uploads", 429))
-    dateien = []
+    dateien, namen = [], []
     for f in request.files.getlist("dateien"):
         daten = f.stream.read(MAX_BYTES + 1)
         dateien.append(daten)
+        namen.append(f.filename)
     try:
-        ergebnis = pdf_eingang.anlegen(mandant, dateien)
+        ergebnis = pdf_eingang.anlegen(mandant, dateien, namen)
     except pdf_eingang.Fehler as f:
         audit("upload_abgelehnt", f.code)
         return _fehler(f)

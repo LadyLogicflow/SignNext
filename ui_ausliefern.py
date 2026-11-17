@@ -7,7 +7,7 @@ Seiten (alle ohne Anmeldung ausgeliefert; die Daten kommen erst über die API un
   /einstellungen  Einstellungen der Beratungsstelle
   /vorgaenge      Vorgangsliste der Beratungsstelle ( / leitet hierher)
   /mail-zugang    Mail-Zugang der Beratungsstelle (Server, Absender, Testmail)
-Dazu die Dateien ``*.js`` und ``style.css`` aus ``ui/`` unter ``/<Dateiname>`` (die Seiten binden sie relativ ein).
+Dazu die Dateien ``*.js`` und ``style.css`` aus ``ui/`` unter ``/<Dateiname>`` (die Seiten binden sie relativ ein) und die Schriften ``*.woff2`` aus ``ui/fonts/`` unter ``/fonts/<Dateiname>``.
 
 Sicherheitsheader auf jeder Seite: strenge Content-Security-Policy (Skripte nur von der eigenen Adresse, keine Inline-Skripte, keine fremden Quellen, keine Einbettung
 durch andere Seiten), nicht für Suchmaschinen, nie zwischenspeichern (zusätzlich zu den globalen Headern in app.py)."""
@@ -21,7 +21,8 @@ ORDNER = Path(__file__).resolve().parent / "ui"
 SEITEN = {"/u": "unterschrift.html", "/d": "download.html", "/pruefung": "pruefung.html", "/einstellungen": "einstellungen.html", "/vorgaenge": "vorgaenge.html",
           "/mail-zugang": "mail-zugang.html", "/h": "handy.html"}
 ASSET = re.compile(r"^[a-z][a-z0-9_-]{0,40}\.(js|css)$")
-CSP = ("default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self'; frame-src 'self'; "
+SCHRIFT = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,60}\.woff2$")        # Schriften liegen in ui/fonts/ und werden unter /fonts/<Name> ausgeliefert
+CSP = ("default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; frame-src 'self'; "
        "form-action 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'")
 
 
@@ -54,6 +55,13 @@ for _pfad, _datei in SEITEN.items():
 @bp.get("/")
 def start():
     return redirect("/vorgaenge", 302)
+
+
+@bp.get("/fonts/<name>")
+def schrift(name):
+    if not SCHRIFT.fullmatch(name) or not (ORDNER / "fonts" / name).is_file():
+        abort(404)
+    return _kopf(send_from_directory(ORDNER / "fonts", name, mimetype="font/woff2", max_age=0), False)
 
 
 @bp.get("/<name>")
