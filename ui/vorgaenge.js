@@ -2,6 +2,8 @@
 'use strict';
 
 document.addEventListener('DOMContentLoaded', async () => {
+    if (!(await Berater.bereit())) return;
+    await demoBereich();
     await loadVorgaenge();
 });
 
@@ -25,6 +27,7 @@ async function loadVorgaenge() {
     try {
         const data = await api('GET', '/vorgaenge');
         const liste = document.getElementById('vorgaenge-liste');
+        liste.textContent = '';
 
         if (!data.vorgaenge || data.vorgaenge.length === 0) {
             liste.textContent = 'Keine Vorgänge vorhanden';
@@ -106,5 +109,33 @@ async function downloadVorgang(id, type) {
         URL.revokeObjectURL(url);
     } catch (err) {
         alert('Fehler: ' + err.message);
+    }
+}
+
+// Demo: Beispiel-PDFs (feste Links in der Seite) und Demo-Vorgang mit Link, Geburtsdatum und Code
+async function demoBereich() {
+    if (!(await Berater.istDemo())) return;
+    document.getElementById('demo-bereich').classList.remove('hidden');
+    document.getElementById('btn-demo-vorgang').addEventListener('click', demoVorgangAnlegen);
+}
+
+async function demoVorgangAnlegen() {
+    const knopf = document.getElementById('btn-demo-vorgang');
+    const fehler = document.getElementById('demo-fehler');
+    fehler.classList.add('hidden');
+    knopf.disabled = true;
+    try {
+        const r = await api('POST', '/demo/vorgang', {});
+        Berater.linkBoxZeigen(document.getElementById('demo-ergebnis'), {
+            titel: `Demo-Vorgang ${r.vorgang_id} angelegt`,
+            link: r.link,
+            hinweis: `Zum Öffnen des Links wird das Geburtsdatum ${r.geburtsdatum} verlangt (Eingabe: ${r.code}).`
+        });
+        await loadVorgaenge();
+    } catch (err) {
+        fehler.textContent = err.message;
+        fehler.classList.remove('hidden');
+    } finally {
+        knopf.disabled = false;
     }
 }

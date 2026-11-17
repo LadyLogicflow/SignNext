@@ -1,29 +1,14 @@
 """jsdom-Prüfung der SignNext-Unterschriftsseite (/u) und der Handy-Seite (/h): Zeichenfeld, Personen, Meldungen im Text, Handy-Übergabe per QR.
 Die Schnittstelle wird vom Treiber (drive_sn.js) nach der Schnittstellenbeschreibung nachgespielt (siehe README.md in diesem Ordner)."""
-import json
-import shutil
-import subprocess
 import unittest
-from pathlib import Path
+from urllib.parse import unquote
 
-HIER = Path(__file__).resolve().parent
-DRIVE = HIER / "drive_sn.js"
+from ui_hilfen import BEREIT, HINWEIS, lauf
+
 PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
 QR_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="#000"/></svg>'
 SATZ = "Sie können am Computer mit der Maus oder am Smartphone oder Tablet mit dem Finger unterschreiben."
 STRICH = [[10, 10], [50, 30], [90, 10]]
-BEREIT = (shutil.which("node") is not None) and (HIER / "node_modules" / "jsdom").is_dir()
-
-
-def lauf(**kw):
-    p = subprocess.run(["node", str(DRIVE), json.dumps(kw)], capture_output=True, text=True, timeout=120, cwd=str(HIER))
-    zeilen = [z for z in p.stdout.splitlines() if z.startswith("RESULT ")]
-    if not zeilen:
-        raise AssertionError(p.stdout[-400:] + p.stderr[-400:])
-    o = json.loads(zeilen[-1][7:])
-    if not o["ok"]:
-        raise AssertionError(o["fehler"])
-    return o
 
 
 def bis_zum_feld(*weiter):
@@ -35,7 +20,7 @@ def posts(schritt, pfad_ende):
     return [r for r in schritt["zustand"]["requests"] if r["m"] == "POST" and r["p"].endswith(pfad_ende)]
 
 
-@unittest.skipUnless(BEREIT, "braucht Node und jsdom (siehe README.md): cd tools/ui_pruefung && npm install jsdom@24 --no-save")
+@unittest.skipUnless(BEREIT, HINWEIS)
 class TestZeichenfeld(unittest.TestCase):
     def test_zeichenfeld_verhaelt_sich_wie_in_booknext(self):
         o = lauf(seite="/u", fragment="#tok", ops=bis_zum_feld(
@@ -105,7 +90,7 @@ class TestZeichenfeld(unittest.TestCase):
         self.assertEqual(code["schritte"][0]["zustand"]["fehler_code"], "Das Geburtsdatum stimmt nicht")
 
 
-@unittest.skipUnless(BEREIT, "braucht Node und jsdom (siehe README.md)")
+@unittest.skipUnless(BEREIT, HINWEIS)
 class TestHandyUebergabe(unittest.TestCase):
     def test_qr_wird_als_bild_gezeigt_und_wartet(self):
         o = lauf(seite="/u", fragment="#tok", api={"handoffStatus": ["wartet"]}, ops=bis_zum_feld({"op": "handy", "warte": 300}))
@@ -116,7 +101,6 @@ class TestHandyUebergabe(unittest.TestCase):
         self.assertFalse(z["zeichenfeld_sichtbar"])
         self.assertEqual((z["qr"]["tag"], z["qr"]["sichtbar"]), ("IMG", True))
         self.assertTrue(z["qr"]["src"].startswith("data:image/svg+xml;charset=utf-8,"))
-        from urllib.parse import unquote
         self.assertEqual(unquote(z["qr"]["src"].split(",", 1)[1]), QR_SVG)                      # das SVG kommt unverändert als Bild
         self.assertIn("QR-Code", z["handy_status"])
         self.assertRegex(z["handy_rest"], r"^Noch \d+:\d\d Minuten gültig\.$")
@@ -183,7 +167,7 @@ class TestHandyUebergabe(unittest.TestCase):
         self.assertFalse(kein["schritte"][3]["zustand"]["qr"]["sichtbar"])                      # kein SVG: kein Bild
 
 
-@unittest.skipUnless(BEREIT, "braucht Node und jsdom (siehe README.md)")
+@unittest.skipUnless(BEREIT, HINWEIS)
 class TestHandySeite(unittest.TestCase):
     def test_token_nur_im_fragment_zeichnen_und_uebertragen(self):
         o = lauf(seite="/h", fragment="#geheim123", api={"handyInfo": {"person": 2, "personen": 2, "status": "verbunden"}},

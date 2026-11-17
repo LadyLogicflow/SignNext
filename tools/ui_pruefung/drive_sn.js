@@ -7,7 +7,7 @@ const path = require('path');
 
 const arg = JSON.parse(process.argv[2]);
 const UI = path.resolve(__dirname, '..', '..', 'ui');
-const SEITEN = {'/u': 'unterschrift.html', '/h': 'handy.html'};
+const SEITEN = {'/u': 'unterschrift.html', '/h': 'handy.html', '/vorgaenge': 'vorgaenge.html', '/einstellungen': 'einstellungen.html', '/pruefung': 'pruefung.html', '/mail-zugang': 'mail-zugang.html'};
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 const QR_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="#000"/></svg>';
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -26,8 +26,13 @@ const cfg = Object.assign({
     handyInfo: {person: 1, personen: 1, status: 'verbunden'},
     handyInfoFehler: null,
     handyUnterschriftFehler: null,
+    // Berater-Seiten und Demo
+    me: {status: 200, body: {email: 'berater@example.org', demo: false}},
+    demoInfo: {demo: true, versand: 'testadressen', testadressen: ['a@example.org', 'b@example.org'], mail_zugang_geprueft: true},
+    testmailFehler: null,
+    versenden: {status: 200, body: {ok: true}},
 }, arg.api || {});
-const zustand = {person: 1, unterschrieben: [], handoffAbfragen: 0, abgeholt: false, handoffNummer: 0};
+const zustand = {person: 1, unterschrieben: [], handoffAbfragen: 0, abgeholt: false, handoffNummer: 0, vorgaenge: [{id: 1, status: 'bereit', erstellt: '2026-11-17T10:00:00Z'}]};
 const aufrufe = [];
 
 function senden(res, status, obj, typ) {
@@ -89,6 +94,27 @@ function api(req, res, pfad, body) {
         if (cfg.handyUnterschriftFehler) return fehler(cfg.handyUnterschriftFehler.status, cfg.handyUnterschriftFehler.error, cfg.handyUnterschriftFehler.meldung);
         return senden(res, 200, {ok: true});
     }
+    // Berater (Portal-Anmeldung bzw. Demo)
+    if (pfad === '/api/v1/me') return senden(res, cfg.me.status, cfg.me.body);
+    if (pfad === '/api/v1/vorgaenge' && m === 'GET') return senden(res, 200, {vorgaenge: zustand.vorgaenge});
+    if (pfad === '/api/v1/demo' && m === 'GET') return senden(res, 200, cfg.demoInfo);
+    if (pfad === '/api/v1/demo/vorgang' && m === 'POST') {
+        const id = 7 + zustand.vorgaenge.length;
+        zustand.vorgaenge.push({id, status: 'bereit', erstellt: '2026-11-17T11:00:00Z'});
+        return senden(res, 200, {vorgang_id: id, link: 'https://sn.example/u#demo' + id, geburtsdatum: '01.02.1960', code: '010260'});
+    }
+    if (pfad === '/api/v1/demo/testmail' && m === 'POST') {
+        if (cfg.testmailFehler) return fehler(cfg.testmailFehler.status, cfg.testmailFehler.error, cfg.testmailFehler.meldung);
+        return senden(res, 200, {ergebnis: 'gesendet'});
+    }
+    if (pfad === '/api/v1/einstellungen') return senden(res, 200, {verantwortlicher: 'Beratungsstelle Beispiel, Musterstr. 1', datenschutz_link: 'https://beispiel.example/datenschutz', aufbewahrung_tage: 90, mitglied_download_link: false});
+    if (pfad === '/api/v1/mail-zugang' && m === 'GET') return senden(res, 200, {konfiguriert: true, geprueft_am: '2026-11-01T10:00:00Z', host: 'smtp.example'});
+    if (/^\/api\/v1\/vorgaenge\/\d+\/pruefung$/.test(pfad)) {
+        return senden(res, 200, {status: 'bereit', name: {wert: 'Erika Muster', herkunft: 'protokoll'}, geburtsdatum: {gesetzt: true, wert: '01.02.60', herkunft: 'gesetzt'},
+            email: {wert: 'erika@example.org', herkunft: 'manuell'}, personen: {wert: 1, herkunft: 'protokoll'}, versandbereit_pdf: true, fehlend: [], erinnerungen_aus: false});
+    }
+    if (/^\/api\/v1\/vorgaenge\/\d+\/dokument$/.test(pfad)) { res.writeHead(200, {'Content-Type': 'application/pdf'}); return res.end('%PDF-1.4'); }
+    if (/^\/api\/v1\/vorgaenge\/\d+\/versenden$/.test(pfad) && m === 'POST') return senden(res, cfg.versenden.status, cfg.versenden.body);
     return fehler(404, 'nicht_gefunden', 'unbekannt');
 }
 
@@ -113,6 +139,7 @@ async function main() {
     await new Promise(r => server.listen(0, '127.0.0.1', r));
     const BASE = `http://127.0.0.1:${server.address().port}`;
     const alerts = [];
+    const zwischenablage = [];
     const zeichnung = {striche: 0, geleert: 0, bilder: 0, stil: null, capture: 0};
     const fehler = [];
     const vc = new VirtualConsole();
@@ -125,9 +152,10 @@ async function main() {
                 return fetch(url, {method: o.method || 'GET', headers: o.headers, body: o.body});
             };
             win.alert = (t) => { alerts.push(String(t)); };
+            Object.defineProperty(win.navigator, 'clipboard', {value: {writeText: async (t) => { zwischenablage.push(String(t)); }}});
             win.confirm = () => true;
             const echt = win.setTimeout.bind(win);
-            win.setTimeout = (f, ms, ...rest) => echt(f, ms >= 1000 ? 25 : ms, ...rest);              // die Handy-Abfrage (2 s) läuft im Test schnell
+            win.setTimeout = (f, ms, ...rest) => echt(f, ms === 2000 ? 25 : ms, ...rest);                // nur die Handy-Abfrage (genau 2000 ms) läuft im Test schnell
             win.URL.createObjectURL = () => 'blob:fake';
             const ctx = {
                 lineWidth: 1, lineCap: '', lineJoin: '', strokeStyle: '',
@@ -158,6 +186,38 @@ async function main() {
     const sichtbar = (id) => { const e = doc.getElementById(id); return !!e && !e.classList.contains('hidden'); };
     const text = (id) => { const e = doc.getElementById(id); return e ? e.textContent.trim() : null; };
     const aktiverSchritt = () => [...doc.querySelectorAll('.step')].filter(s => !s.classList.contains('hidden')).map(s => s.id);
+    const berater = () => {
+        const ergebnis = (id) => {
+            const b = doc.getElementById(id);
+            if (!b || b.classList.contains('hidden')) return null;
+            const qr = b.querySelector('img.link-qr');
+            return {text: b.textContent.replace(/\s+/g, ' ').trim(), link: b.querySelector('input.link-feld') ? b.querySelector('input.link-feld').value : null,
+                    link_nur_lesen: b.querySelector('input.link-feld') ? b.querySelector('input.link-feld').readOnly : null,
+                    kopieren: b.querySelector('button.link-kopieren') ? b.querySelector('button.link-kopieren').textContent : null,
+                    qr: qr ? {tag: qr.tagName, src: qr.getAttribute('src')} : null};
+        };
+        const banner = doc.getElementById('demo-banner');
+        const karten = doc.querySelectorAll('#vorgaenge-liste .card').length;
+        return {
+            banner: banner ? banner.textContent : null,
+            banner_rolle: banner ? banner.getAttribute('role') : null,
+            nur_heimnetz: doc.getElementById('nur-heimnetz') ? doc.getElementById('nur-heimnetz').textContent : null,
+            demo_bereich: sichtbar('demo-bereich'),
+            pdf_links: [...doc.querySelectorAll('#demo-bereich a')].map(a => ({href: a.getAttribute('href'), download: a.hasAttribute('download'), text: a.textContent.trim()})),
+            demo_ergebnis: ergebnis('demo-ergebnis'),
+            demo_fehler: sichtbar('demo-fehler') ? text('demo-fehler') : null,
+            vorgang_karten: karten,
+            testmail: doc.getElementById('demo-testmail') ? {
+                sichtbar: sichtbar('demo-testmail'), info: text('demo-versand-info'),
+                optionen: [...doc.querySelectorAll('#demo-testadresse option')].map(o => o.value),
+                knopf_gesperrt: doc.getElementById('btn-demo-testmail').disabled,
+                erfolg: sichtbar('demo-testmail-erfolg') ? text('demo-testmail-erfolg') : null,
+                fehler: sichtbar('demo-testmail-fehler') ? text('demo-testmail-fehler') : null} : null,
+            versand_box: ergebnis('demo-link-box'),
+            versand_fehler: sichtbar('versand-error') ? text('versand-error') : null,
+            container_text: doc.querySelector('.container') ? doc.querySelector('.container').textContent.replace(/\s+/g, ' ').trim().slice(0, 200) : null,
+        };
+    };
     const sicht = (vor) => {
         const qr = doc.getElementById('handy-qr');
         const knopf = (id) => { const b = doc.getElementById(id); return b ? {sichtbar: !b.classList.contains('hidden'), gesperrt: b.disabled, text: b.textContent.trim()} : null; };
@@ -183,6 +243,8 @@ async function main() {
             haken_an: doc.getElementById('check-datenschutz') ? doc.getElementById('check-datenschutz').checked : null,
             knoepfe: {handy: knopf('btn-handy'), handy_neu: knopf('btn-handy-neu'), loeschen: knopf('btn-clear'), unterschreiben: knopf('btn-unterschreiben'), uebertragen: knopf('btn-uebertragen')},
             fertig: sichtbar('step-fertig') ? text('step-fertig') : null,
+            berater: berater(),
+            zwischenablage: zwischenablage.slice(),
             hash: win.location.hash,
             pfad: win.location.pathname,
             alerts: alerts.slice(),
@@ -223,6 +285,10 @@ async function main() {
         if (op.op === 'handy_abbrechen') klick('btn-handy-abbrechen');
         if (op.op === 'uebertragen') klick('btn-uebertragen');
         if (op.op === 'neu_laden_klick') klick('btn-neu-laden');
+        if (op.op === 'klick_id') klick(op.id);
+        if (op.op === 'klick_sel') doc.querySelector(op.sel).click();
+        if (op.op === 'haken_id') doc.getElementById(op.id).checked = op.an !== false;
+        if (op.op === 'auswahl_id') { const e = doc.getElementById(op.id); e.value = op.wert; e.dispatchEvent(new win.Event('change', {bubbles: true})); }
         await sleep(warte);
         out.schritte.push({op, zustand: sicht(vor)});
     }

@@ -4,6 +4,7 @@
 let hasExisting = false;
 
 document.addEventListener('DOMContentLoaded', async () => {
+    if (!(await Berater.bereit())) return;
     await loadMailZugang();
 
     document.getElementById('form-mail').addEventListener('submit', saveMailZugang);

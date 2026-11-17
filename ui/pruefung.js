@@ -5,6 +5,7 @@ const vorgangId = new URLSearchParams(window.location.search).get('id');
 let pruefungData = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
+    if (!(await Berater.bereit())) return;
     if (!vorgangId) {
         alert('Keine Vorgangs-ID in URL');
         return;
@@ -34,7 +35,7 @@ async function api(method, path, body = null) {
     const res = await fetch('/api/v1' + path, opts);
     if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.meldung || err.error || 'Fehler');
+        throw Object.assign(new Error(err.meldung || err.error || 'Fehler'), {daten: err});
     }
     return res.json();
 }
@@ -250,12 +251,18 @@ async function versenden() {
     }
 
     try {
-        await api('POST', `/vorgaenge/${vorgangId}/versenden`, {bestaetigt: true});
+        const r = await api('POST', `/vorgaenge/${vorgangId}/versenden`, {bestaetigt: true});
+        if (r && r.demo) {
+            Berater.linkBoxZeigen(document.getElementById('demo-link-box'), {titel: 'Demo: Zugangslink am Bildschirm', link: r.demo.link, qr_svg: r.demo.qr_svg, hinweis: r.demo.geburtsdatum_hinweis});
+        }
         alert('Link wurde versendet!');
         document.getElementById('versand-hinweise').innerHTML = '<p class="success-text">✓ Link erfolgreich versendet</p>';
         document.getElementById('btn-versenden').disabled = true;
     } catch (err) {
         showError('versand-error', err.message);
+        if (err.daten && err.daten.fallback) {            // Demo: die Mail ging nicht, der Link steht trotzdem am Bildschirm
+            Berater.linkBoxZeigen(document.getElementById('demo-link-box'), {titel: 'Demo: Zugangslink als Ersatz', link: err.daten.fallback.link, qr_svg: err.daten.fallback.qr_svg});
+        }
     }
 }
 

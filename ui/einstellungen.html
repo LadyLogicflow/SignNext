@@ -51,10 +51,23 @@
                         <button type="submit" class="btn btn-primary">Speichern</button>
                     </form>
                 </section>
+
+                <section id="demo-testmail" class="card hidden">
+                    <h2>Demo: Testmail</h2>
+                    <p id="demo-versand-info"></p>
+                    <div class="form-group">
+                        <label for="demo-testadresse">Erlaubte Adresse</label>
+                        <select id="demo-testadresse"></select>
+                    </div>
+                    <div id="demo-testmail-fehler" class="error hidden" role="alert"></div>
+                    <div id="demo-testmail-erfolg" class="success-text hidden" role="status"></div>
+                    <button id="btn-demo-testmail" type="button" class="btn btn-secondary">Testmail an erlaubte Adresse</button>
+                </section>
             </div>
         </main>
     </div>
 
+    <script src="berater.js"></script>
     <script src="einstellungen.js"></script>
 </body>
 </html>
