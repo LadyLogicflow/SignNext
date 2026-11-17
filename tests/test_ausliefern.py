@@ -208,7 +208,9 @@ class TestBeraterRahmenStatik(unittest.TestCase):
 
     def test_knopfreihen_brechen_um_statt_ueberzulaufen(self):
         css = (UI / "berater.css").read_text(encoding="utf-8")
-        self.assertRegex(css.split(".knopf-zeile", 1)[1].split("}", 1)[0], r"flex-wrap:\s*wrap")
+        regel = re.search(r"body\.berater \.knopf-zeile\s*\{([^}]*)\}", css)
+        self.assertIsNotNone(regel)
+        self.assertRegex(regel.group(1), r"flex-wrap:\s*wrap")
         for name in self.BERATER:
             self.assertNotIn('style="display: flex', (UI / (name + ".html")).read_text(encoding="utf-8"), name)    # Knopfreihen über .knopf-zeile (umbrechend)
 
