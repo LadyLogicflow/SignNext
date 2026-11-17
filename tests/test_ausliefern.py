@@ -149,7 +149,9 @@ class TestSchutzwaechterUI(unittest.TestCase):
                 for m in re.finditer(muster, text):
                     zeile = text[:m.start()].count("\n") + 1
                     ausnahme = "startsWith('https://')" in text.splitlines()[zeile - 1] or "'Muss mit https://" in text.splitlines()[zeile - 1]
-                    ausnahme = ausnahme or (datei.name == "qrbild.js" and "'http://www.w3.org/2000/svg'" in text.splitlines()[zeile - 1])      # nur der XML-Namensraum, nie ein Abruf
+                    # SVG-Namensraum (Kennung, kein Abruf): nur in diesen beiden Dateien und nur, wenn auf der Zeile keine andere Adresse steht
+                    adressen = re.findall(r"https?://[^\s'\"\\]+", text.splitlines()[zeile - 1])
+                    ausnahme = ausnahme or (datei.name in ("qrbild.js", "wortmarke.js") and bool(adressen) and all(a == "http://www.w3.org/2000/svg" for a in adressen))
                     self.assertTrue(ausnahme, "%s:%d %s" % (datei.name, zeile, muster))
 
     def test_kein_token_in_speicher_oder_adresse(self):
@@ -190,6 +192,39 @@ class TestTippflaechen(unittest.TestCase):
         js = (Path(__file__).resolve().parent.parent / "ui" / "zeichenfeld.js").read_text(encoding="utf-8")
         self.assertIn("visibility: hidden", css.split(".zeichenfeld-fehlt.unsichtbar", 1)[1].split("}", 1)[0])
         self.assertNotIn("fehlt.classList.toggle('hidden'", js)                                   # display:none würde das Feld unter dem Finger springen lassen
+
+
+class TestBeraterRahmenStatik(unittest.TestCase):
+    BERATER = ("vorgaenge", "pruefung", "einstellungen", "mail-zugang")
+
+    def test_jede_berater_seite_hat_den_gemeinsamen_rahmen(self):
+        for name in self.BERATER:
+            text = (UI / (name + ".html")).read_text(encoding="utf-8")
+            self.assertIn('<body class="berater">', text, name)
+            for teil in ('href="berater.css"', 'src="wortmarke.js"', 'src="qrbild.js"', 'src="berater.js"', 'id="berater-nav"', 'id="hinweisleiste"', 'id="wortmarke"', "<h1>"):
+                self.assertIn(teil, text, (name, teil))
+            self.assertEqual(text.count('aria-current="page"'), 1, name)
+            self.assertLess(text.index('src="berater.js"'), text.index('src="%s.js"' % name), name)      # Rahmen vor dem Seitenskript
+
+    def test_knopfreihen_brechen_um_statt_ueberzulaufen(self):
+        css = (UI / "berater.css").read_text(encoding="utf-8")
+        self.assertRegex(css.split(".knopf-zeile", 1)[1].split("}", 1)[0], r"flex-wrap:\s*wrap")
+        for name in self.BERATER:
+            self.assertNotIn('style="display: flex', (UI / (name + ".html")).read_text(encoding="utf-8"), name)    # Knopfreihen über .knopf-zeile (umbrechend)
+
+    def test_mitglieder_seiten_bleiben_ohne_berater_stil(self):
+        for name in ("unterschrift", "download", "handy"):
+            text = (UI / (name + ".html")).read_text(encoding="utf-8")
+            self.assertNotIn("berater", text, name)
+
+    def test_jede_schrift_im_stylesheet_gibt_es_als_datei_und_nur_von_hier(self):
+        css = (UI / "berater.css").read_text(encoding="utf-8")
+        urls = re.findall(r"url\(['\"]?([^'\")]+)", css)
+        self.assertEqual(len(urls), 3)
+        for u in urls:
+            self.assertTrue(re.fullmatch(r"/fonts/[A-Za-z0-9]+\.woff2", u), u)                        # eigene Adresse, kein CDN
+            self.assertTrue((UI / u.lstrip("/")).is_file(), u)
+        self.assertNotRegex(css, r"(?i)https?://|@import")
 
 
 class TestHandyHinweis(Basis):

@@ -111,7 +111,9 @@ function api(req, res, pfad, body) {
         if (cfg.testmailFehler) return fehler(cfg.testmailFehler.status, cfg.testmailFehler.error, cfg.testmailFehler.meldung);
         return senden(res, 200, {ergebnis: 'gesendet'});
     }
-    if (pfad === '/api/v1/einstellungen') return senden(res, 200, {verantwortlicher: 'Beratungsstelle Beispiel, Musterstr. 1', datenschutz_link: 'https://beispiel.example/datenschutz', aufbewahrung_tage: 90, mitglied_download_link: false});
+    if (cfg.hinweisFehler && (pfad === '/api/v1/einstellungen' || (pfad === '/api/v1/mail-zugang' && m === 'GET'))) return fehler(500, 'intern', 'kaputt');
+    if (pfad === '/api/v1/einstellungen' && cfg.einstellungen) return senden(res, 200, cfg.einstellungen);
+    if (pfad === '/api/v1/einstellungen') return senden(res, 200, {gesetzt: true, verantwortlicher: 'Beratungsstelle Beispiel, Musterstr. 1', datenschutz_link: 'https://beispiel.example/datenschutz', aufbewahrung_tage: 90, mitglied_download_link: false});
     if (pfad === '/api/v1/mail-zugang' && m === 'GET') return senden(res, 200, cfg.mailZugang);
     if (pfad === '/api/v1/mail-zugang' && m === 'PUT') return senden(res, cfg.mailPut.status, cfg.mailPut.body);
     if (/^\/api\/v1\/vorgaenge\/\d+\/pruefung$/.test(pfad)) {
@@ -212,8 +214,17 @@ async function main() {
                     qr: qr ? {tag: qr.tagName, src: qr.getAttribute('src')} : null};
         };
         const banner = doc.getElementById('demo-banner');
+        const wm = doc.querySelector('#wortmarke svg');
+        const menue = [...doc.querySelectorAll('#berater-nav a')].map(a => ({text: a.textContent.trim(), href: a.getAttribute('href'), aktuell: a.getAttribute('aria-current') === 'page'}));
+        const hinweise = [...doc.querySelectorAll('#hinweisleiste .hinweis')].map(h => ({text: h.querySelector('.hinweis-text').textContent.trim(), knopf: h.querySelector('a').textContent.trim(), href: h.querySelector('a').getAttribute('href')}));
         const karten = doc.querySelectorAll('#vorgaenge-liste .card').length;
         return {
+            wortmarke: wm ? {titel: (wm.querySelector('title') || {}).textContent, farben: [...wm.querySelectorAll('[fill],[stroke]')].map(e => e.getAttribute('fill') || e.getAttribute('stroke')).filter((f, i, l) => l.indexOf(f) === i).sort()} : null,
+            angemeldet: sichtbar('angemeldet') ? text('angemeldet') : null,
+            portal_link: sichtbar('portal-link') ? doc.getElementById('portal-link').getAttribute('href') : null,
+            menue, hinweise,
+            banner_in_leiste: !!doc.querySelector('#hinweisleiste #demo-banner'),
+            ueberschrift: doc.querySelector('h1') ? doc.querySelector('h1').textContent : null,
             banner: banner ? banner.textContent : null,
             banner_rolle: banner ? banner.getAttribute('role') : null,
             nur_heimnetz: doc.getElementById('nur-heimnetz') ? doc.getElementById('nur-heimnetz').textContent : null,

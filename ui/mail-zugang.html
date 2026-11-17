@@ -5,12 +5,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mail-Zugang - SignNext</title>
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="berater.css">
 </head>
-<body>
+<body class="berater">
+    <div class="band">
+        <div class="band-in">
+            <span id="wortmarke" class="wortmarke" role="img" aria-label="BSt Next"></span>
+            <p class="band-tag">Unterschriften einholen &amp; nachweisen</p>
+            <a id="portal-link" class="band-link hidden" href="#">← Zurück zum Hauptportal</a>
+        </div>
+    </div>
     <div class="container">
-        <header>
-            <h1>Mail-Zugang</h1>
-        </header>
+        <p class="eyebrow">Beratungsstelle</p>
+        <h1>Mail-Zugang</h1>
+        <p id="angemeldet" class="angemeldet hidden"></p>
+        <nav id="berater-nav" class="menue" aria-label="Menü der Beratungsstelle">
+            <a href="/vorgaenge">Vorgänge</a>
+            <a href="/mail-zugang" aria-current="page">Mail-Zugang</a>
+            <a href="/einstellungen">Einstellungen</a>
+        </nav>
+        <div id="hinweisleiste"></div>
 
         <main id="app">
             <div id="loading" class="loading">Lade Mail-Zugang...</div>
@@ -79,7 +93,7 @@
                         </div>
 
                         <div id="save-error" class="error hidden"></div>
-                        <div style="display: flex; gap: 0.5rem;">
+                        <div class="knopf-zeile">
                             <button type="submit" class="btn btn-primary">Speichern</button>
                             <button type="button" id="btn-test" class="btn btn-secondary">Testmail senden</button>
                             <button type="button" id="btn-delete" class="btn btn-secondary">Löschen</button>
@@ -96,6 +110,7 @@
     </div>
 
     <script src="qrbild.js"></script>
+    <script src="wortmarke.js"></script>
     <script src="berater.js"></script>
     <script src="mail-zugang.js"></script>
 </body>

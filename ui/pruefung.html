@@ -5,12 +5,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Prüfung - SignNext</title>
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="berater.css">
 </head>
-<body>
+<body class="berater">
+    <div class="band">
+        <div class="band-in">
+            <span id="wortmarke" class="wortmarke" role="img" aria-label="BSt Next"></span>
+            <p class="band-tag">Unterschriften einholen &amp; nachweisen</p>
+            <a id="portal-link" class="band-link hidden" href="#">← Zurück zum Hauptportal</a>
+        </div>
+    </div>
     <div class="container">
-        <header>
-            <h1>Vorgang prüfen und versenden</h1>
-        </header>
+        <p class="eyebrow">Beratungsstelle</p>
+        <h1>Vorgang prüfen und versenden</h1>
+        <p id="angemeldet" class="angemeldet hidden"></p>
+        <nav id="berater-nav" class="menue" aria-label="Menü der Beratungsstelle">
+            <a href="/vorgaenge" aria-current="page">Vorgänge</a>
+            <a href="/mail-zugang">Mail-Zugang</a>
+            <a href="/einstellungen">Einstellungen</a>
+        </nav>
+        <div id="hinweisleiste"></div>
 
         <main id="app">
             <div id="loading" class="loading">Lade Vorgang...</div>
@@ -99,6 +113,7 @@
     </div>
 
     <script src="qrbild.js"></script>
+    <script src="wortmarke.js"></script>
     <script src="berater.js"></script>
     <script src="pruefung.js"></script>
 </body>

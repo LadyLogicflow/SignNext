@@ -1,0 +1,272 @@
+/* SignNext Berater-Seiten im BSt-Next-Stylebook (wie das BookNext-Dashboard) - CSP 'self' konform.
+   Gilt nur mit <body class="berater">; die Seiten für Mitglieder (/u, /d, /h) behalten style.css unverändert.
+   Farben und Schriften nur aus dem Stylebook: Navy 900, Lime 600/300, Paper, Ink; Archivo Black (Überschriften), Inter (Text), JetBrains Mono (Beschriftungen). */
+
+@font-face { font-family: 'Archivo Black'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/ArchivoBlack.woff2') format('woff2'); }
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 100 900; font-display: swap; src: url('/fonts/Inter.woff2') format('woff2'); }
+@font-face { font-family: 'JetBrains Mono'; font-style: normal; font-weight: 100 800; font-display: swap; src: url('/fonts/JetBrainsMono.woff2') format('woff2'); }
+
+body.berater {
+    --navy-900: #0b2545;
+    --navy-500: #1e4a8a;
+    --navy-100: #e8f0f8;
+    --lime-300: #a3e635;
+    --lime-600: #4d7c0f;
+    --paper: #f8fafc;
+    --ink: #15191f;
+    --ink-soft: #4b5563;
+    --line: #dde3ea;
+    --color-primary: var(--navy-900);
+    --color-accent: var(--lime-300);
+    --color-bg: var(--paper);
+    --color-text: var(--ink);
+    --color-border: var(--line);
+    font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+    background: var(--paper);
+    color: var(--ink);
+    padding: 0;
+}
+
+/* Kopfband */
+body.berater .band {
+    background: var(--navy-900);
+    color: #fff;
+    padding: 20px 24px 16px;
+}
+
+body.berater .band-in {
+    max-width: 1000px;
+    margin: 0 auto;
+}
+
+body.berater .wortmarke {
+    display: block;
+    height: 30px;
+}
+
+body.berater .wortmarke svg {
+    height: 30px;
+    width: auto;
+    display: block;
+}
+
+body.berater .band-tag {
+    margin-top: 6px;
+    font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #dbe6f3;
+}
+
+body.berater .band-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+/* Seite */
+body.berater .container {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 28px 20px 64px;
+    background: transparent;
+    border-radius: 0;
+    box-shadow: none;
+    overflow: visible;
+}
+
+body.berater main {
+    padding: 0;
+}
+
+body.berater .eyebrow {
+    font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: var(--lime-600);
+}
+
+body.berater h1 {
+    margin: 6px 0 8px;
+    font-family: 'Archivo Black', Archivo, Inter, system-ui, sans-serif;
+    font-weight: 400;
+    font-size: 34px;
+    line-height: 1.15;
+    color: var(--navy-900);
+}
+
+body.berater .angemeldet {
+    margin-bottom: 18px;
+    font-size: 14px;
+    color: var(--ink-soft);
+}
+
+body.berater .angemeldet strong {
+    color: #374151;
+}
+
+/* Menü in Lime (wie BookNext): aktive Seite als gefüllte Fläche */
+body.berater .menue {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 20px;
+    padding: 8px;
+    background: #fff;
+    border: 1px solid rgba(77, 124, 15, 0.3);
+    border-radius: 12px;
+}
+
+body.berater .menue a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--lime-600);
+    text-decoration: none;
+}
+
+body.berater .menue a:hover {
+    background: rgba(163, 230, 53, 0.3);
+}
+
+body.berater .menue a[aria-current="page"] {
+    background: var(--lime-600);
+    color: #fff;
+}
+
+/* Hinweisleiste unter dem Menü */
+body.berater .hinweis {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 14px;
+    padding: 12px 16px;
+    border-radius: 10px;
+    font-size: 14px;
+}
+
+body.berater .hinweis .hinweis-text {
+    flex: 1 1 220px;
+}
+
+body.berater .hinweis-gelb {
+    background: #fef3c7;
+    border: 1px solid #f59e0b;
+    color: #78350f;
+}
+
+body.berater .hinweis-blau {
+    background: var(--navy-100);
+    border: 1px solid #c9d9ec;
+    color: var(--navy-900);
+}
+
+body.berater .demo-banner {
+    margin: 0 0 14px;
+}
+
+/* Karten und Knöpfe */
+body.berater .card {
+    padding: 20px;
+    margin-bottom: 18px;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    box-shadow: none;
+}
+
+body.berater .card h2 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--navy-900);
+}
+
+body.berater .card h2::before {
+    content: '';
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--lime-600);
+}
+
+body.berater .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 10px 20px;
+    border: 2px solid var(--navy-900);
+    border-radius: 8px;
+    font: 700 15px Inter, system-ui, sans-serif;
+    text-decoration: none;
+}
+
+body.berater .btn-primary {
+    background: var(--navy-900);
+    color: #fff;
+}
+
+body.berater .btn-primary:hover:not(:disabled) {
+    background: var(--navy-500);
+}
+
+body.berater .btn-primary::after {
+    content: '\203A';
+    font-size: 20px;
+    line-height: 1;
+    color: var(--lime-300);
+}
+
+body.berater .btn-secondary {
+    background: #fff;
+    color: var(--navy-900);
+}
+
+body.berater .btn-secondary:hover {
+    background: var(--navy-100);
+}
+
+body.berater a {
+    color: var(--navy-900);
+}
+
+body.berater .loading {
+    color: var(--ink-soft);
+}
+
+body.berater .info-box {
+    background: var(--navy-100);
+    border-left-color: var(--navy-900);
+}
+
+/* Knöpfe nebeneinander, auf schmalen Bildschirmen umbrechen statt überlaufen */
+body.berater .knopf-zeile {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+/* Handy */
+@media (max-width: 700px) {
+    body.berater .band { padding: 14px; }
+    body.berater .container { padding: 18px 12px 64px; }
+    body.berater h1 { font-size: 26px; }
+    body.berater .menue a { flex: 1 1 auto; justify-content: center; }
+}

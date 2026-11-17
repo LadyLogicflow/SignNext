@@ -207,3 +207,61 @@ class TestDemoMailZugang(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(BEREIT, HINWEIS)
+class TestRahmen(unittest.TestCase):
+    """Gemeinsamer Rahmen aller Berater-Seiten (Konzept 17.11.2026): Wortmarke, Angemeldet-als, Menü, Hinweisleiste."""
+    MENUE = [("Vorgänge", "/vorgaenge"), ("Mail-Zugang", "/mail-zugang"), ("Einstellungen", "/einstellungen")]
+
+    def test_menue_ist_auf_jeder_seite_gleich_und_markiert_die_aktuelle(self):
+        erwartet = {"/vorgaenge": "/vorgaenge", "/pruefung?id=7": "/vorgaenge", "/mail-zugang": "/mail-zugang", "/einstellungen": "/einstellungen"}
+        for seite, aktiv in erwartet.items():
+            o = lauf(seite=seite, ops=[])
+            menue = o["start"]["berater"]["menue"]
+            self.assertEqual([(m["text"], m["href"]) for m in menue], self.MENUE, seite)
+            self.assertEqual([m["href"] for m in menue if m["aktuell"]], [aktiv], seite)
+
+    def test_wortmarke_ist_die_offizielle_und_zweifarbig(self):
+        w = lauf(seite="/vorgaenge", ops=[])["start"]["berater"]["wortmarke"]
+        self.assertEqual(w["titel"], "BSt Next")
+        self.assertEqual([f for f in w["farben"] if f != "none"], ["#A3E635", "#FFFFFF"])                                  # "BSt" weiß, "Next" und Chevron Lime - nie einfarbig
+
+    def test_angemeldet_als_und_portal_link(self):
+        o = lauf(seite="/vorgaenge", api={"me": {"status": 200, "body": {"email": "berater@example.org", "rolle": "admin", "demo": False}}}, ops=[])["start"]["berater"]
+        self.assertEqual(o["angemeldet"], "Angemeldet als: berater@example.org (Administrator)")
+        self.assertIsNone(o["portal_link"])                                                    # ohne Adresse vom Server kein Link
+        mit = lauf(seite="/vorgaenge", api={"me": {"status": 200, "body": {"email": "b@example.org", "portal_url": "https://portal.example/"}}}, ops=[])["start"]["berater"]
+        self.assertEqual(mit["portal_link"], "https://portal.example/")
+        boese = lauf(seite="/vorgaenge", api={"me": {"status": 200, "body": {"email": "b@example.org", "portal_url": "javascript:alert(1)"}}}, ops=[])["start"]["berater"]
+        self.assertIsNone(boese["portal_link"])                                                # nur https-Adressen
+        html = lauf(seite="/vorgaenge", api={"me": {"status": 200, "body": {"email": "<b>x</b>@example.org"}}}, ops=[])["start"]["berater"]
+        self.assertEqual(html["angemeldet"], "Angemeldet als: <b>x</b>@example.org")           # als Text, nicht als Markup
+        demo = lauf(seite="/vorgaenge", api={"me": DEMO}, ops=[])["start"]["berater"]
+        self.assertEqual(demo["angemeldet"], "Angemeldet als: Demo-Beratungsstelle")
+        self.assertTrue(demo["banner_in_leiste"])                                              # Demo-Banner steht in der Hinweisleiste
+
+    def test_hinweisleiste_nur_wenn_etwas_fehlt(self):
+        ok = lauf(seite="/vorgaenge", ops=[])["start"]["berater"]["hinweise"]
+        self.assertEqual(ok, [])
+        kein_mail = lauf(seite="/vorgaenge", api={"mailZugang": {"konfiguriert": False}}, ops=[])["start"]["berater"]["hinweise"]
+        self.assertEqual(kein_mail, [{"text": "Ihr Mail-Zugang fehlt noch. Ohne ihn können keine E-Mails an Mitglieder gesendet werden.", "knopf": "Mail-Zugang einrichten", "href": "/mail-zugang"}])
+        ungeprueft = lauf(seite="/vorgaenge", api={"mailZugang": {"konfiguriert": True, "geprueft_am": None}}, ops=[])["start"]["berater"]["hinweise"]
+        self.assertEqual([(h["knopf"], h["href"]) for h in ungeprueft], [("Testmail senden", "/mail-zugang")])
+        keine_angaben = lauf(seite="/vorgaenge", api={"einstellungen": {"gesetzt": False}}, ops=[])["start"]["berater"]["hinweise"]
+        self.assertEqual([(h["knopf"], h["href"]) for h in keine_angaben], [("Angaben ergänzen", "/einstellungen")])
+        beides = lauf(seite="/vorgaenge", api={"mailZugang": {"konfiguriert": False}, "einstellungen": {"gesetzt": False}}, ops=[])["start"]["berater"]["hinweise"]
+        self.assertEqual([h["href"] for h in beides], ["/mail-zugang", "/einstellungen"])
+
+    def test_auf_der_eigenen_seite_kein_hinweis_darauf(self):
+        fehlt = {"mailZugang": {"konfiguriert": False}, "einstellungen": {"gesetzt": False}}
+        mail = lauf(seite="/mail-zugang", api=fehlt, ops=[])["start"]["berater"]["hinweise"]
+        self.assertEqual([h["href"] for h in mail], ["/einstellungen"])                        # auf der Mail-Zugang-Seite nur der andere Hinweis
+        einst = lauf(seite="/einstellungen", api=fehlt, ops=[])["start"]["berater"]["hinweise"]
+        self.assertEqual([h["href"] for h in einst], ["/mail-zugang"])
+
+    def test_fehler_beim_laden_der_hinweise_stoert_die_seite_nicht(self):
+        o = lauf(seite="/vorgaenge", api={"hinweisFehler": True}, ops=[])
+        self.assertEqual(o["start"]["berater"]["hinweise"], [])
+        self.assertEqual(o["fehler_js"], [])
+        self.assertEqual(o["start"]["berater"]["ueberschrift"], "Unterschriften einholen")
