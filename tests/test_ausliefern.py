@@ -159,5 +159,30 @@ class TestSchutzwaechterUI(unittest.TestCase):
                     self.assertNotRegex(zeile, r"\$\{[^}]*(verantwortlicher|name|mail|email|text|meldung|err\.|message)", "%s:%d" % (datei.name, nr))
 
 
+class TestHandyHinweis(Basis):
+    """Hinweis auf der Unterschriftsseite (catrin #19322): am Computer mit der Maus, am Smartphone oder Tablet mit dem Finger. Eigenes Element in der Seite, NICHT in texte/
+    (dort hängen Kennung und Hash der Irony-Texte dran)."""
+    SATZ = "Sie können am Computer mit der Maus oder am Smartphone oder Tablet mit dem Finger unterschreiben."
+
+    def test_satz_steht_als_schlichter_absatz_vor_dem_zeichenfeld(self):
+        html = self.c.get("/u").get_data(as_text=True)
+        self.assertEqual(html.count(self.SATZ), 1)
+        m = re.search(r'<p id="unterschrift-hinweis">([^<]*)</p>', html)
+        self.assertIsNotNone(m, "schlichter Absatz ohne class, style oder hidden")
+        self.assertEqual(m.group(1), self.SATZ)
+        self.assertLess(html.index('<label for="unterschrift-canvas">'), m.start())
+        self.assertLess(m.start(), html.index('<canvas id="unterschrift-canvas"'))               # vor dem Zeichenfeld
+        self.assertLess(html.index('id="step-unterschrift"'), m.start())                         # im Schritt der Unterschrift, nicht davor
+        self.assertEqual(html, (UI / "unterschrift.html").read_text(encoding="utf-8"))
+
+    def test_satz_liegt_nicht_in_den_irony_texten_und_wird_nicht_per_skript_gesetzt(self):
+        for datei in (Path(__file__).resolve().parent.parent / "texte").iterdir():
+            inhalt = datei.read_text(encoding="utf-8")
+            self.assertNotIn("Smartphone", inhalt, datei.name)                                   # texte/ bleibt unberührt (Kennung und Hash)
+            self.assertNotIn(self.SATZ, inhalt, datei.name)
+        self.assertNotIn("unterschrift-hinweis", (UI / "app.js").read_text(encoding="utf-8"))
+        self.assertNotIn("unterschrift-hinweis", (UI / "style.css").read_text(encoding="utf-8").replace("#unterschrift-hinweis {\n    margin-bottom: 0.5rem;\n}", ""))
+
+
 if __name__ == "__main__":
     unittest.main()

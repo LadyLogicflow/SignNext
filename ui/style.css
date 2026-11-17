@@ -210,6 +210,10 @@ main {
     font-weight: 600;
 }
 
+#unterschrift-hinweis {
+    margin-bottom: 0.5rem;
+}
+
 #unterschrift-canvas {
     border: 2px solid var(--color-border);
     border-radius: 4px;
