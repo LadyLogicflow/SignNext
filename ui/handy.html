@@ -11,10 +11,35 @@
         <header>
             <h1>Unterschrift am Handy</h1>
         </header>
+
         <main id="app">
-            <!-- Platzhalter des Backends (v0.7.0): Weby ersetzt diese Seite durch die Handy-Seite (Zeichenfeld, Link-Schlüssel aus dem Fragment). -->
-            <p>Diese Seite wird von der Oberfläche bereitgestellt.</p>
+            <div id="meldung" class="error hidden" role="alert"></div>
+
+            <div id="step-zeichnen" class="step">
+                <p id="handy-einleitung" class="info-box">Bitte unterschreiben Sie hier mit dem Finger. Danach tippen Sie auf „Übertragen“ und wechseln zurück zum Computer.</p>
+
+                <div id="zeichenfeld" class="form-group zeichenfeld">
+                    <span id="zeichenfeld-label" class="zeichenfeld-label">Unterschrift</span>
+                    <canvas id="unterschrift-canvas" class="zeichenfeld-canvas" width="600" height="200" role="img" aria-labelledby="zeichenfeld-label"></canvas>
+                    <div class="zeichenfeld-leiste">
+                        <button id="btn-clear" type="button" class="zeichenfeld-leeren">löschen</button>
+                    </div>
+                    <p id="zeichenfeld-fehlt" class="zeichenfeld-fehlt">Bitte hier unterschreiben.</p>
+                </div>
+
+                <button id="btn-uebertragen" type="button" class="btn btn-primary" disabled>Übertragen</button>
+            </div>
+
+            <div id="step-fertig" class="step hidden">
+                <div class="success-box">
+                    <h2>Übertragen!</h2>
+                    <p>Sie können jetzt zum Computer zurückwechseln. Dort geht es weiter.</p>
+                </div>
+            </div>
         </main>
     </div>
+
+    <script src="zeichenfeld.js"></script>
+    <script src="handy.js"></script>
 </body>
 </html>

@@ -142,7 +142,7 @@ class TestSchutzwaechterUI(unittest.TestCase):
                     self.assertTrue(ausnahme, "%s:%d %s" % (datei.name, zeile, muster))
 
     def test_kein_token_in_speicher_oder_adresse(self):
-        for name in ("app.js", "download.js"):
+        for name in ("app.js", "download.js", "handy.js"):
             text = (UI / name).read_text(encoding="utf-8")
             self.assertIn("history.replaceState", text, name)
             self.assertNotRegex(text, r"(?i)(localStorage|sessionStorage|document\.cookie)", name)
@@ -159,6 +159,28 @@ class TestSchutzwaechterUI(unittest.TestCase):
                     self.assertNotRegex(zeile, r"\$\{[^}]*(verantwortlicher|name|mail|email|text|meldung|err\.|message)", "%s:%d" % (datei.name, nr))
 
 
+class TestTippflaechen(unittest.TestCase):
+    """Auf dem Handy müssen Knöpfe und Textknöpfe mindestens 44 px hoch sein (Touch-Probe 17.11.2026)."""
+
+    def test_mindestgroesse_44px(self):
+        import re
+        css = (Path(__file__).resolve().parent.parent / "ui" / "style.css").read_text(encoding="utf-8")
+
+        def regel(selektor):
+            m = re.search(re.escape(selektor) + r"\s*\{([^}]*)\}", css)
+            self.assertIsNotNone(m, selektor)
+            return m.group(1)
+        for sel in (".zeichenfeld-leeren, .link-knopf", ".btn"):
+            self.assertRegex(regel(sel), r"min-height:\s*44px", sel)
+        self.assertRegex(regel(".zeichenfeld-leeren, .link-knopf"), r"min-width:\s*44px")
+
+    def test_hinweis_unter_dem_zeichenfeld_behaelt_seinen_platz(self):
+        css = (Path(__file__).resolve().parent.parent / "ui" / "style.css").read_text(encoding="utf-8")
+        js = (Path(__file__).resolve().parent.parent / "ui" / "zeichenfeld.js").read_text(encoding="utf-8")
+        self.assertIn("visibility: hidden", css.split(".zeichenfeld-fehlt.unsichtbar", 1)[1].split("}", 1)[0])
+        self.assertNotIn("fehlt.classList.toggle('hidden'", js)                                   # display:none würde das Feld unter dem Finger springen lassen
+
+
 class TestHandyHinweis(Basis):
     """Hinweis auf der Unterschriftsseite (catrin #19322): am Computer mit der Maus, am Smartphone oder Tablet mit dem Finger. Eigenes Element in der Seite, NICHT in texte/
     (dort hängen Kennung und Hash der Irony-Texte dran)."""
@@ -170,7 +192,7 @@ class TestHandyHinweis(Basis):
         m = re.search(r'<p id="unterschrift-hinweis">([^<]*)</p>', html)
         self.assertIsNotNone(m, "schlichter Absatz ohne class, style oder hidden")
         self.assertEqual(m.group(1), self.SATZ)
-        self.assertLess(html.index('<label for="unterschrift-canvas">'), m.start())
+        self.assertLess(html.index('id="zeichenfeld-label"'), m.start())
         self.assertLess(m.start(), html.index('<canvas id="unterschrift-canvas"'))               # vor dem Zeichenfeld
         self.assertLess(html.index('id="step-unterschrift"'), m.start())                         # im Schritt der Unterschrift, nicht davor
         self.assertEqual(html, (UI / "unterschrift.html").read_text(encoding="utf-8"))

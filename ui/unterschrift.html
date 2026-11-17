@@ -13,6 +13,9 @@
         </header>
 
         <main id="app">
+            <div id="meldung" class="error hidden" role="alert"></div>
+            <button id="btn-neu-laden" type="button" class="btn btn-secondary hidden">Seite neu laden</button>
+
             <!-- Schritt 1: Hinweis + Geburtsdatum -->
             <div id="step-hinweis" class="step">
                 <div id="hinweis-text" class="info-box"></div>
@@ -51,12 +54,27 @@
                     </label>
                 </div>
 
-                <div class="form-group">
-                    <label for="unterschrift-canvas">Unterschrift (mit Maus/Touch zeichnen)</label>
+                <div id="person-info" class="info-box hidden" role="status"></div>
+
+                <div id="zeichenfeld" class="form-group zeichenfeld">
+                    <span id="zeichenfeld-label" class="zeichenfeld-label">Unterschrift</span>
                     <p id="unterschrift-hinweis">Sie können am Computer mit der Maus oder am Smartphone oder Tablet mit dem Finger unterschreiben.</p>
-                    <canvas id="unterschrift-canvas" width="600" height="200"></canvas>
-                    <div class="canvas-actions">
-                        <button id="btn-clear" type="button" class="btn btn-secondary">Löschen</button>
+                    <canvas id="unterschrift-canvas" class="zeichenfeld-canvas" width="600" height="200" role="img" aria-labelledby="zeichenfeld-label"></canvas>
+                    <div class="zeichenfeld-leiste">
+                        <button id="btn-clear" type="button" class="zeichenfeld-leeren">löschen</button>
+                    </div>
+                    <p id="zeichenfeld-fehlt" class="zeichenfeld-fehlt">Bitte hier unterschreiben.</p>
+                    <button id="btn-handy" type="button" class="link-knopf">Am Handy unterschreiben</button>
+                </div>
+
+                <div id="handy-box" class="handy-box hidden">
+                    <span class="zeichenfeld-label" id="handy-titel">Am Handy unterschreiben</span>
+                    <p id="handy-status" role="status" aria-live="polite"></p>
+                    <img id="handy-qr" class="handy-qr hidden" alt="QR-Code zum Unterschreiben am Handy" width="220" height="220">
+                    <p id="handy-rest" class="handy-rest"></p>
+                    <div class="handy-aktionen">
+                        <button id="btn-handy-neu" type="button" class="btn btn-secondary hidden">Neuen QR-Code anzeigen</button>
+                        <button id="btn-handy-abbrechen" type="button" class="link-knopf">Abbrechen, hier zeichnen</button>
                     </div>
                 </div>
 
@@ -74,6 +92,7 @@
         </main>
     </div>
 
+    <script src="zeichenfeld.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

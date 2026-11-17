@@ -143,6 +143,7 @@ main {
 }
 
 .btn {
+    min-height: 44px;
     padding: 0.75rem 1.5rem;
     border: none;
     border-radius: 6px;
@@ -212,6 +213,90 @@ main {
 
 #unterschrift-hinweis {
     margin-bottom: 0.5rem;
+}
+
+/* Zeichenfeld (gemeinsam für /u und /h) */
+.zeichenfeld-label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+    color: var(--color-text);
+}
+
+.zeichenfeld-leiste {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 0.25rem;
+}
+
+.zeichenfeld-leeren, .link-knopf {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    min-width: 44px;
+    background: none;
+    border: none;
+    padding: 0.25rem 0.5rem;
+    font: inherit;
+    font-size: 0.875rem;
+    color: var(--color-primary);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+}
+
+.link-knopf {
+    margin-top: 0.5rem;
+}
+
+.zeichenfeld-fehlt {
+    margin-top: 0.25rem;
+    min-height: 1.3em;
+    font-size: 0.8125rem;
+    color: #b91c1c;
+}
+
+.zeichenfeld-fehlt.unsichtbar {
+    visibility: hidden;
+}
+
+canvas.gesperrt {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+.handy-box {
+    margin-bottom: 1.5rem;
+    padding: 1.25rem;
+    text-align: center;
+    border: 2px dashed var(--color-border);
+    border-radius: 6px;
+    background: #f9fafb;
+}
+
+.handy-qr {
+    display: block;
+    margin: 0.75rem auto;
+    background: white;
+    padding: 0.5rem;
+    border-radius: 4px;
+}
+
+.handy-rest {
+    font-size: 0.8125rem;
+    color: #4b5563;
+}
+
+.handy-aktionen {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    justify-content: center;
+    align-items: center;
+    margin-top: 0.75rem;
 }
 
 #unterschrift-canvas {
@@ -295,4 +380,41 @@ dt {
 dd {
     margin: 0.25rem 0 0 1rem;
     color: #6b7280;
+}
+
+/* Demo-Modus (Berater-Seiten) */
+.demo-banner {
+    margin-bottom: 1rem;
+    padding: 0.5rem 1rem;
+    background: #fef3c7;
+    border: 1px solid var(--color-warning);
+    border-radius: 4px;
+    font-weight: 700;
+    text-align: center;
+    color: #78350f;
+}
+
+.link-zeile {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-top: 0.5rem;
+}
+
+.link-feld {
+    flex: 1;
+    min-width: 0;
+}
+
+.link-qr {
+    display: block;
+    margin: 0.75rem 0;
+    background: white;
+    padding: 0.5rem;
+    border-radius: 4px;
+}
+
+.link-hinweis {
+    font-size: 0.875rem;
+    color: #4b5563;
 }

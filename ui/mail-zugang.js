@@ -4,6 +4,7 @@
 let hasExisting = false;
 
 document.addEventListener('DOMContentLoaded', async () => {
+    if (!(await Berater.bereit())) return;
     await loadMailZugang();
 
     document.getElementById('form-mail').addEventListener('submit', saveMailZugang);
@@ -30,7 +31,7 @@ async function api(method, path, body = null) {
 
     if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.meldung || err.error || 'Fehler');
+        throw Object.assign(new Error(err.meldung || err.error || 'Fehler'), {daten: err});
     }
 
     if (res.status === 204) {
@@ -43,6 +44,7 @@ async function api(method, path, body = null) {
 async function loadMailZugang() {
     try {
         const data = await api('GET', '/mail-zugang');
+        zeigeHinweise(data && data.hinweise);
 
         if (data && data.konfiguriert) {
             hasExisting = true;
@@ -184,8 +186,31 @@ async function saveMailZugang(e) {
         document.getElementById('passwort').value = '';
         await loadMailZugang();
     } catch (err) {
-        showError('save-error', err.message);
+        // Fehler mit Feldname (z. B. 422 absender_adresse bei abweichender Domain) stehen am Feld, alle anderen im Formularfehler
+        const feld = err.daten && FELD_FEHLER[err.daten.feld];
+        showError(feld || 'save-error', err.message);
     }
+}
+
+const FELD_FEHLER = {
+    host: 'host-error', port: 'port-error', benutzer: 'benutzer-error', passwort: 'passwort-error',
+    absender_name: 'absender-name-error', absender_adresse: 'absender-adresse-error', signatur: 'signatur-error'
+};
+
+// Demo: Hinweise des Servers (z. B. Benutzername ungleich Absenderadresse), nur anzeigen
+function zeigeHinweise(hinweise) {
+    const box = document.getElementById('mail-hinweise');
+    box.textContent = '';
+    if (!Array.isArray(hinweise) || hinweise.length === 0) {
+        box.classList.add('hidden');
+        return;
+    }
+    hinweise.forEach(text => {
+        const p = document.createElement('p');
+        p.textContent = String(text);
+        box.appendChild(p);
+    });
+    box.classList.remove('hidden');
 }
 
 async function testMailZugang() {
