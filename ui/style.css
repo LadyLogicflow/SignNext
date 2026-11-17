@@ -225,14 +225,9 @@ main {
 .zeichenfeld-leiste {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-end;
     gap: 0.5rem;
     margin-top: 0.25rem;
-}
-
-.zeichenfeld-hilfe {
-    font-size: 0.8125rem;
-    color: #4b5563;
 }
 
 .zeichenfeld-leeren, .link-knopf {

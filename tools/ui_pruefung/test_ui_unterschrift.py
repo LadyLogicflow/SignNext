@@ -29,8 +29,8 @@ class TestZeichenfeld(unittest.TestCase):
         feld = o["schritte"][2]["zustand"]
         self.assertEqual(feld["schritt"], ["step-unterschrift"])
         self.assertEqual(feld["fehlt"], "Bitte hier unterschreiben.")                           # roter Satz, solange nichts gezeichnet ist
-        self.assertEqual(feld["hilfe"], "Mit Maus, Stift oder Finger unterschreiben.")
-        self.assertEqual(feld["hinweis_oben"], SATZ)                                            # Satz von catrin (#19322) bleibt vor dem Feld
+        self.assertEqual(feld["hinweis_oben"], SATZ)                                            # nur dieser Satz von catrin (#19322), vor dem Feld
+        self.assertIsNone(feld["hilfe"])                                                        # der BookNext-Satz unter dem Feld entfällt (Docky #19360)
         self.assertEqual(feld["knoepfe"]["loeschen"]["text"], "löschen")
         self.assertEqual(feld["label"], "Unterschrift")
         tippen = o["schritte"][3]["zustand"]
