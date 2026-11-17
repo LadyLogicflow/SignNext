@@ -19,7 +19,7 @@ from flask import Blueprint, Response, abort, redirect, send_from_directory
 bp = Blueprint("ui", __name__)
 ORDNER = Path(__file__).resolve().parent / "ui"
 SEITEN = {"/u": "unterschrift.html", "/d": "download.html", "/pruefung": "pruefung.html", "/einstellungen": "einstellungen.html", "/vorgaenge": "vorgaenge.html",
-          "/mail-zugang": "mail-zugang.html"}
+          "/mail-zugang": "mail-zugang.html", "/h": "handy.html"}
 ASSET = re.compile(r"^[a-z][a-z0-9_-]{0,40}\.(js|css)$")
 CSP = ("default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self'; frame-src 'self'; "
        "form-action 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'")

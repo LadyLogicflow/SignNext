@@ -134,6 +134,27 @@ CREATE TABLE IF NOT EXISTS sitzung (
     texte_hash TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_sitzung_vorgang ON sitzung(mandant_ref, vorgang_id);
+-- Handy-Übergabe der Unterschrift (handoff.py): kurzlebig (10 Minuten), das Bild liegt nur verschlüsselt hier und wird nach der Abholung sofort gelöscht.
+CREATE TABLE IF NOT EXISTS handoff (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    handoff_id TEXT NOT NULL UNIQUE,
+    token_hash TEXT NOT NULL UNIQUE,
+    sitzung_id INTEGER NOT NULL,
+    vorgang_id INTEGER NOT NULL,
+    mandant_ref TEXT NOT NULL,
+    person INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'wartet',
+    erstellt TEXT NOT NULL,
+    laeuft_ab TEXT NOT NULL,
+    bild_enc TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_handoff_vorgang ON handoff(mandant_ref, vorgang_id, person);
+CREATE TABLE IF NOT EXISTS handoff_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    vorgang_id INTEGER NOT NULL,
+    zeit TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_handoff_log ON handoff_log(vorgang_id, zeit);
 -- Je Unterschrift: nur das Bild (keine biometrischen Merkmale), Zeitpunkte, Nachweis des angezeigten Textes, IP (laut Einstellung), grobe Gerätekennung.
 CREATE TABLE IF NOT EXISTS unterschrift (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

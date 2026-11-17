@@ -4,7 +4,8 @@
 # Zusätzliche Zeilen in der Datei .env (nie einchecken):
 #   SIGNNEXT_VERSAND_TESTADRESSEN   erlaubte Empfänger, Komma-Liste (weitere ohne Neustart: Datei testadressen.txt, siehe PI-DEMO.md)
 #   SIGNNEXT_DEMO_HOSTS             weitere Adressen/Namen, unter denen die Demo aufgerufen wird (z. B. die LAN-Adresse des Pi), Komma-Liste; SIGNNEXT_PI_ADRESSE gilt immer
-#   SIGNNEXT_DEMO_NETZE             nur falls das LAN in 172.16.0.0/12 liegt (CIDR, Komma-Liste); Standard: 10/8, 192.168/16, Tailscale, Loopback
+#   SIGNNEXT_DEMO_NETZE             nur falls die App als Absender die Docker-Gateway-Adresse sieht (172.x; Docker-Portweiterleitung) oder das LAN in 172.16.0.0/12 liegt
+#                                   (CIDR, Komma-Liste, so eng wie möglich, z. B. 172.21.0.0/24); Standard: 10/8, 192.168/16, Tailscale, Loopback
 # Port 443 ist auf dem Pi durch Tailscale belegt: Der Vorsatz lauscht auf 8443.
 services:
   signnext:
@@ -19,7 +20,7 @@ services:
       SIGNNEXT_PROXIES: "1"
   vorsatz:
     ports: !override
-      - "8443:8443"
+      - "${SIGNNEXT_PI_ADRESSE}:8443:8443"                      # nur auf der Tailscale-/Pi-Adresse lauschen, nicht auf allen Schnittstellen (die eigentliche Sperre der Demo)
     volumes:
       - ./Caddyfile.pi.8443:/etc/caddy/Caddyfile:ro
       - caddy-daten:/data

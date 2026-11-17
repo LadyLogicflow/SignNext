@@ -9,6 +9,7 @@ import demo_api
 import config
 import db
 import download
+import handoff
 import jobs
 import ui_ausliefern
 import zugang
@@ -55,6 +56,8 @@ def create_app(db_pfad: str | None = None) -> Flask:
     db.init(db_pfad)
     app.register_blueprint(api.bp)
     app.register_blueprint(demo_api.bp)
+    app.register_blueprint(handoff.bp)
+    app.register_blueprint(handoff.bp_handy)
     app.register_blueprint(zugang.bp)
     app.register_blueprint(download.bp)
     app.register_blueprint(ui_ausliefern.bp)

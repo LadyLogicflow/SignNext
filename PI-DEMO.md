@@ -10,6 +10,9 @@ Ziel: Das Tool komplett vorführen können: PDFs hochladen, prüfen, versenden (
 3. `docker compose -f docker-compose.pi.yaml -f docker-compose.pi.demo.yml up -d --build`
 4. Aufruf im Browser: `https://<PI_ADRESSE>:8443/vorgaenge` (Zertifikatswarnung einmal bestätigen). Es gibt kein Portal-Login; die Seite ist die feste Demo-Beratungsstelle.
 
+**Erreichbarkeit:** Der Vorsatz bindet Port 8443 nur an `SIGNNEXT_PI_ADRESSE` (die Tailscale-Adresse), nicht an alle Schnittstellen. Das ist die eigentliche Sperre; die Adressprüfung der App ist die zweite Schicht. Startet Docker vor Tailscale, schlägt das Binden fehl und der Vorsatz startet nach (restart: unless-stopped).
+Sieht die App als Absender die Docker-Gateway-Adresse (Audit: demo_verweigert, adresse_nicht_erlaubt, ip 172.x.0.0 gekürzt), die Docker-Netz-Adresse mit `SIGNNEXT_DEMO_NETZE=172.x.0.0/24` freigeben (Docker-Netz anzeigen: `docker network inspect <projekt>_default`) und Port 8443 nie im Router/Internet freigeben.
+
 Kommt „Diese Demo ist nur im Heimnetz erreichbar“ (403 demo_nicht_erlaubt): Die Client-Adresse liegt nicht in 10/8, 192.168/16, Tailscale oder Loopback, oder der Host-Name stimmt nicht (`SIGNNEXT_DEMO_HOSTS`), oder das LAN liegt in 172.16/12 (`SIGNNEXT_DEMO_NETZE=172.16.0.0/12`). Die Ablehnung steht im Audit (Aktion demo_verweigert, Grund).
 
 ## Mail-Zugang (einmalig)

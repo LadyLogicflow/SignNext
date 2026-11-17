@@ -281,6 +281,8 @@ def aufraeumen(jetzt: datetime) -> int:
         n += c.execute("DELETE FROM zugang_ip WHERE zeit < ?", (alt,)).rowcount
         n += c.execute("DELETE FROM zugang_unbekannt WHERE zeit < ?", (alt,)).rowcount
         n += c.execute("DELETE FROM sitzung WHERE laeuft_ab < ?", (_z(jetzt),)).rowcount
+        n += c.execute("DELETE FROM handoff WHERE laeuft_ab <= ?", (_z(jetzt),)).rowcount                   # Handy-Übergabe: Bild nie länger als 10 Minuten
+        c.execute("DELETE FROM handoff_log WHERE zeit < ?", (_z(jetzt - timedelta(hours=2)),))
         n += c.execute("DELETE FROM loeschprotokoll WHERE loeschen_nach <= ?", (_z(jetzt),)).rowcount
         reste = c.execute("SELECT DISTINCT v.id AS id, v.mandant_ref AS mandant_ref FROM vorgang v JOIN dokument d ON d.vorgang_id=v.id WHERE v.status='abgeschlossen' AND d.rolle IN ('A','B','M')").fetchall()
     for r in reste:                                              # Absturz zwischen Abschluss und Löschung der Originale
