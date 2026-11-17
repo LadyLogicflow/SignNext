@@ -119,65 +119,6 @@ class TestDemoTestmail(unittest.TestCase):
 
 
 @unittest.skipUnless(BEREIT, HINWEIS)
-class TestDemoVersenden(unittest.TestCase):
-    VERSENDEN = [{"op": "haken_id", "id": "versand-bestaetigung", "warte": 50}, {"op": "klick_id", "id": "btn-versenden", "warte": 600}]
-
-    def test_im_demo_stehen_link_und_qr_am_bildschirm(self):
-        demo = {"link": "https://sn.example/u#abc", "qr_svg": QR_SVG, "geburtsdatum_hinweis": "Geburtsdatum für den Link: 01.02.60"}
-        o = lauf(seite="/pruefung?id=1", api={"me": DEMO, "versenden": {"status": 200, "body": {"ok": True, "demo": demo}}}, ops=self.VERSENDEN)
-        box = o["schritte"][1]["zustand"]["berater"]["versand_box"]
-        self.assertEqual((box["link"], box["link_nur_lesen"]), ("https://sn.example/u#abc", True))
-        self.assertIn("Geburtsdatum für den Link: 01.02.60", box["text"])
-        self.assertEqual(box["qr"]["tag"], "IMG")
-        self.assertEqual(unquote(box["qr"]["src"].split(",", 1)[1]), QR_ALS_BILD)                      # nur als Bild, nie als Markup
-        self.assertIn("Link wurde versendet!", o["schritte"][1]["zustand"]["alerts"])             # die bisherige Bestätigung bleibt
-
-    def test_ohne_demo_feld_keine_box(self):
-        o = lauf(seite="/pruefung?id=1", ops=self.VERSENDEN)
-        self.assertIsNone(o["schritte"][1]["zustand"]["berater"]["versand_box"])
-
-    def test_scheitert_die_mail_im_demo_wird_ohne_mail_fortfahren_angeboten(self):
-        fehler = {"status": 502, "body": {"error": "mail_fehler", "meldung": "Die Mail konnte nicht gesendet werden.", "fallback": "ohne_mail"}}
-        ohne = {"status": 200, "body": {"ok": True, "demo": {"link": "https://sn.example/u#ohne", "qr_svg": QR_SVG, "ohne_mail": True, "geburtsdatum_hinweis": "Geburtsdatum für den Link: 01.02.60"}}}
-        o = lauf(seite="/pruefung?id=1", api={"me": DEMO, "versenden": fehler, "versendenOhneMail": ohne},
-                 ops=self.VERSENDEN + [{"op": "klick_id", "id": "btn-ohne-mail", "warte": 600}])
-        z = o["schritte"][1]["zustand"]["berater"]
-        self.assertEqual(z["versand_fehler"], "Die Mail konnte nicht gesendet werden.")           # der Fehler wie bisher
-        self.assertEqual(z["ohne_mail"], {"knopf_gesperrt": False})                                # und das Angebot "Ohne Mail fortfahren"
-        self.assertIsNone(z["versand_box"])                                                        # noch kein Link, es wurde nichts freigegeben
-        gesendet = [r for r in o["schritte"][1]["zustand"]["requests"] if r["p"].endswith("/versenden")]
-        self.assertEqual(gesendet[0]["body"], {"bestaetigt": True})
-        danach = o["schritte"][2]
-        zweiter = [r for r in danach["zustand"]["requests"] if r["p"].endswith("/versenden")][0]
-        self.assertEqual((zweiter["m"], zweiter["body"]), ("POST", {"bestaetigt": True, "ohne_mail": True}))     # erneut senden mit ohne_mail
-        b = danach["zustand"]["berater"]
-        self.assertEqual(b["versand_box"]["link"], "https://sn.example/u#ohne")
-        self.assertIn("(ohne Mail)", b["versand_box"]["text"])
-        self.assertEqual(unquote(b["versand_box"]["qr"]["src"].split(",", 1)[1]), QR_ALS_BILD)
-        self.assertIsNone(b["ohne_mail"])                                                          # Angebot verschwindet
-        self.assertIsNone(b["versand_fehler"])
-        self.assertIn("Ohne Mail freigegeben", b["versand_hinweise"])
-        self.assertTrue(b["versenden_gesperrt"])                                                   # nicht ein zweites Mal senden
-
-    def test_anderer_fehler_im_demo_bietet_kein_ohne_mail_an(self):
-        o = lauf(seite="/pruefung?id=1", api={"me": DEMO, "versenden": {"status": 409, "body": {"error": "versand_gesperrt", "meldung": "Der Versand ist gesperrt."}}}, ops=self.VERSENDEN)
-        z = o["schritte"][1]["zustand"]["berater"]
-        self.assertEqual(z["versand_fehler"], "Der Versand ist gesperrt.")
-        self.assertIsNone(z["ohne_mail"])
-        self.assertIsNone(z["versand_box"])
-
-    def test_fehler_beim_ohne_mail_bleibt_im_text(self):
-        fehler = {"status": 502, "body": {"error": "mail_fehler", "meldung": "Die Mail konnte nicht gesendet werden.", "fallback": "ohne_mail"}}
-        o = lauf(seite="/pruefung?id=1", api={"me": DEMO, "versenden": fehler, "versendenOhneMail": {"status": 409, "body": {"error": "x", "meldung": "Ohne Mail nicht möglich."}}},
-                 ops=self.VERSENDEN + [{"op": "klick_id", "id": "btn-ohne-mail", "warte": 500}])
-        b = o["schritte"][2]["zustand"]["berater"]
-        self.assertEqual(b["versand_fehler"], "Ohne Mail nicht möglich.")
-        self.assertEqual(b["ohne_mail"], {"knopf_gesperrt": False})                                # man kann es erneut versuchen
-        self.assertIsNone(b["versand_box"])
-        self.assertEqual(o["schritte"][2]["zustand"]["alerts"], [])
-
-
-@unittest.skipUnless(BEREIT, HINWEIS)
 class TestDemoMailZugang(unittest.TestCase):
     SPEICHERN = [{"op": "submit_id", "id": "form-mail", "warte": 600}]
 

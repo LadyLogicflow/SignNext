@@ -65,35 +65,38 @@ class TestBeraterGegenEchtesBackend(DemoMail):
         self.assertEqual(o["schritte"][1]["zustand"]["berater"]["testmail"]["erfolg"], "Die Testmail wurde an %s gesendet." % EXTERN)
         self.assertEqual([n["an"] for n in self.srv.nachrichten], [[EXTERN]])                       # wirklich eine Mail, nur an diese Adresse
 
+    ZUM_SENDEN = [{"op": "haken_id", "id": "angaben-stimmen", "warte": 50}, {"op": "submit_id", "id": "form-angaben", "warte": 3000}]
+
     def test_versenden_zeigt_link_und_qr_und_die_mail_ging_raus(self):
         vid = self.bereit()
-        o = self.lauf("/pruefung?id=%d" % vid, [{"op": "haken_id", "id": "versand-bestaetigung", "warte": 50}, {"op": "klick_id", "id": "btn-versenden", "warte": 3000}])
-        box = o["schritte"][1]["zustand"]["berater"]["versand_box"]
+        o = self.lauf("/pruefung?id=%d" % vid, self.ZUM_SENDEN + [{"op": "klick_id", "id": "btn-versenden", "warte": 3000}])
+        self.assertEqual(o["schritte"][1]["zustand"]["berater"]["vorgang"]["panel"], ["senden"])
+        ende = o["schritte"][2]["zustand"]["berater"]["vorgang"]
+        self.assertEqual(ende["panel"], ["status"])
+        box = ende["status"]["link_box"]
         self.assertTrue(box["link"].startswith("https://signnext.example/u#"), box)
         self.assertEqual(box["qr"]["tag"], "IMG")
         self.assertIn("Geburtsdatum", box["text"])
         self.assertEqual(len(self.srv.nachrichten), 1)                                              # Mail UND Bildschirm
         self.assertIn(box["link"], self.mail_text(self.srv.nachrichten[0])[1])
-        self.assertIsNone(o["schritte"][1]["zustand"]["berater"]["ohne_mail"])
 
     def test_mailfehler_bietet_ohne_mail_an_und_der_link_funktioniert_danach(self):
         self.srv.mail_ablehnen = True
         vid = self.bereit()
-        o = self.lauf("/pruefung?id=%d" % vid, [{"op": "haken_id", "id": "versand-bestaetigung", "warte": 50}, {"op": "klick_id", "id": "btn-versenden", "warte": 3000},
-                                                   {"op": "klick_id", "id": "btn-ohne-mail", "warte": 3000}])
-        fehl = o["schritte"][1]["zustand"]["berater"]
-        self.assertTrue(fehl["versand_fehler"])                                                     # echter Fehler des Servers
-        self.assertEqual(fehl["ohne_mail"], {"knopf_gesperrt": False})                              # fallback: "ohne_mail" -> Angebot
-        self.assertIsNone(fehl["versand_box"])
-        ende = o["schritte"][2]["zustand"]["berater"]
-        self.assertTrue(ende["versand_box"]["link"].startswith("https://signnext.example/u#"))
-        self.assertIn("(ohne Mail)", ende["versand_box"]["text"])
-        self.assertIsNone(ende["ohne_mail"])
+        o = self.lauf("/pruefung?id=%d" % vid, self.ZUM_SENDEN + [{"op": "klick_id", "id": "btn-versenden", "warte": 3000}, {"op": "klick_id", "id": "btn-ohne-mail", "warte": 3000}])
+        fehl = o["schritte"][2]["zustand"]["berater"]["vorgang"]
+        self.assertEqual(fehl["panel"], ["senden"])
+        self.assertTrue(fehl["senden"]["versand_fehler"])                                           # echter Fehler des Servers
+        self.assertTrue(fehl["senden"]["ohne_mail"])                                                # fallback: "ohne_mail" -> Angebot
+        ende = o["schritte"][3]["zustand"]["berater"]["vorgang"]
+        self.assertEqual(ende["panel"], ["status"])
+        self.assertTrue(ende["status"]["link_box"]["link"].startswith("https://signnext.example/u#"))
+        self.assertIn("(ohne E-Mail)", ende["status"]["link_box"]["text"])
         self.assertEqual(len(self.srv.nachrichten), 0)
         with db.verbindung() as c:
             self.assertEqual(c.execute("SELECT status FROM vorgang WHERE id=?", (vid,)).fetchone()[0], "versendet")
-        token = ende["versand_box"]["link"].split("#", 1)[1]
-        r = self.c.post("/api/v1/zugang/pruefen", json={"token": token, "code": "010260"}, headers={"Origin": "https://signnext.example"})
+        zugangstext = ende["status"]["link_box"]["link"].split("#", 1)[1]
+        r = self.c.post("/api/v1/zugang/pruefen", json={"token": zugangstext, "code": "010260"}, headers={"Origin": "https://signnext.example"})
         self.assertEqual(r.status_code, 200)                                                        # der angezeigte Link öffnet den Vorgang
 
     def test_mail_zugang_zeigt_hinweis_und_fehler_am_feld(self):

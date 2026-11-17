@@ -37,7 +37,10 @@ const cfg = Object.assign({
     mailPut: {status: 200, body: {ok: true}},
 }, arg.api || {});
 const STANDARD_LISTE = [{id: 1, status: 'bereit', erstellt: '2026-11-17T10:00:00Z', name: 'Mustermann_Steuer2025', personen: 2, link_status: null, link_laeuft_ab: null}];
-const zustand = {person: 1, unterschrieben: [], handoffAbfragen: 0, abgeholt: false, handoffNummer: 0, downloads: [], vorgaenge: JSON.parse(JSON.stringify(cfg.vorgaenge || STANDARD_LISTE))};
+const STANDARD_VORGANG = {id: 1, status: 'bereit', erstellt: '2026-11-17T13:05:00Z', name: 'Mustermann_Steuer2025', personen: 2, abgleich: {status: 'automatisch', treffer: ['steuernummer', 'mitgliedsnummer'], abweichend: [], fehlend: []},
+    bestaetigt_am: null, versendet_am: null, unterschrieben_am: null, abgeschlossen_am: null, aufbewahrung_bis: null, erinnerungen_aus: false, link_status: null, dokumente: []};
+const STANDARD_ANGABEN = {name: {wert: 'Erika Muster', herkunft: 'pdf'}, geburtsdatum: {wert: '01.02.1960', herkunft: 'pdf', gesetzt: true}, email: {wert: 'erika@example.org', herkunft: 'pdf'}, personen: {wert: 2, herkunft: 'pdf'}};
+const zustand = {v: Object.assign({}, STANDARD_VORGANG, cfg.vorgang || {}), angaben: Object.assign(JSON.parse(JSON.stringify(STANDARD_ANGABEN)), JSON.parse(JSON.stringify(cfg.angaben || {}))), person: 1, unterschrieben: [], handoffAbfragen: 0, abgeholt: false, handoffNummer: 0, downloads: [], vorgaenge: JSON.parse(JSON.stringify(cfg.vorgaenge || STANDARD_LISTE))};
 const aufrufe = [];
 
 function senden(res, status, obj, typ) {
@@ -124,6 +127,7 @@ function api(req, res, pfad, body) {
     if (treffer && m === 'POST') {
         const antwort = cfg.neuerLink || {status: 200, body: {ok: true}};
         if (antwort.status === 200) zustand.vorgaenge = zustand.vorgaenge.map(v => v.id === Number(treffer[1]) ? Object.assign({}, v, {link_status: 'aktiv', link_laeuft_ab: new Date(Date.now() + 7 * 86400000).toISOString()}) : v);
+        if (antwort.status === 200) zustand.v.link_status = 'aktiv';
         return senden(res, antwort.status, antwort.body);
     }
     treffer = /^\/api\/v1\/vorgaenge\/(\d+)\/download\/(dokument|nachweis)$/.exec(pfad);
@@ -143,12 +147,42 @@ function api(req, res, pfad, body) {
     if (pfad === '/api/v1/einstellungen') return senden(res, 200, {gesetzt: true, verantwortlicher: 'Beratungsstelle Beispiel, Musterstr. 1', datenschutz_link: 'https://beispiel.example/datenschutz', aufbewahrung_tage: 90, mitglied_download_link: false});
     if (pfad === '/api/v1/mail-zugang' && m === 'GET') return senden(res, 200, cfg.mailZugang);
     if (pfad === '/api/v1/mail-zugang' && m === 'PUT') return senden(res, cfg.mailPut.status, cfg.mailPut.body);
-    if (/^\/api\/v1\/vorgaenge\/\d+\/pruefung$/.test(pfad)) {
-        return senden(res, 200, {status: 'bereit', name: {wert: 'Erika Muster', herkunft: 'protokoll'}, geburtsdatum: {gesetzt: true, wert: '01.02.60', herkunft: 'gesetzt'},
-            email: {wert: 'erika@example.org', herkunft: 'manuell'}, personen: {wert: 1, herkunft: 'protokoll'}, versandbereit_pdf: true, fehlend: [], erinnerungen_aus: false});
+    if (/^\/api\/v1\/vorgaenge\/\d+$/.test(pfad) && m === 'GET') return cfg.vorgangFehler ? senden(res, cfg.vorgangFehler.status, cfg.vorgangFehler.body) : senden(res, 200, zustand.v);
+    if (/^\/api\/v1\/vorgaenge\/\d+\/pruefung$/.test(pfad) && m === 'GET') {
+        const a = zustand.angaben;
+        const fehlend = [];
+        if (!a.email.wert) fehlend.push('email');
+        if (!a.geburtsdatum.gesetzt) fehlend.push('geburtsdatum');
+        if (![1, 2].includes(a.personen.wert)) fehlend.push('personen');
+        return senden(res, 200, {vorgang_id: zustand.v.id, status: zustand.v.status, abgleich: zustand.v.abgleich, name: a.name, geburtsdatum: a.geburtsdatum, email: a.email, personen: a.personen,
+            fehlend, versandbereit_pdf: zustand.v.status === 'bereit' && fehlend.length === 0, erinnerungen_aus: zustand.v.erinnerungen_aus});
+    }
+    if (/^\/api\/v1\/vorgaenge\/\d+\/angaben$/.test(pfad) && m === 'PUT') {
+        if (cfg.angabenFehler) return senden(res, cfg.angabenFehler.status, cfg.angabenFehler.body);
+        if (!['bereit', 'bestaetigung_noetig'].includes(zustand.v.status)) return fehler(409, 'zustand_passt_nicht', 'Der Vorgang befindet sich nicht in diesem Zustand.');
+        const a = zustand.angaben;
+        if ('email' in body) a.email = {wert: body.email, herkunft: 'manuell'};
+        if ('geburtsdatum' in body) a.geburtsdatum = {wert: null, herkunft: 'manuell', gesetzt: true};
+        if ('personen' in body) a.personen = {wert: body.personen, herkunft: 'manuell'};
+        return senden(res, 200, {ok: true});
+    }
+    if (/^\/api\/v1\/vorgaenge\/\d+\/abgleich-bestaetigen$/.test(pfad) && m === 'POST') {
+        if (cfg.abgleichFehler) return senden(res, cfg.abgleichFehler.status, cfg.abgleichFehler.body);
+        zustand.v.status = 'bereit';
+        zustand.v.bestaetigt_am = '2026-11-17T13:20:00Z';
+        return senden(res, 200, {ok: true});
+    }
+    if (/^\/api\/v1\/vorgaenge\/\d+\/erinnerungen$/.test(pfad) && m === 'PUT') {
+        if (cfg.erinnerungenFehler) return senden(res, cfg.erinnerungenFehler.status, cfg.erinnerungenFehler.body);
+        zustand.v.erinnerungen_aus = body.an === false;
+        return senden(res, 200, {ok: true});
     }
     if (/^\/api\/v1\/vorgaenge\/\d+\/dokument$/.test(pfad)) { res.writeHead(200, {'Content-Type': 'application/pdf'}); return res.end('%PDF-1.4'); }
-    if (/^\/api\/v1\/vorgaenge\/\d+\/versenden$/.test(pfad) && m === 'POST') { const v = body.ohne_mail ? cfg.versendenOhneMail : cfg.versenden; return senden(res, v.status, v.body); }
+    if (/^\/api\/v1\/vorgaenge\/\d+\/versenden$/.test(pfad) && m === 'POST') {
+        const v = body.ohne_mail ? cfg.versendenOhneMail : cfg.versenden;
+        if (v.status === 200) Object.assign(zustand.v, {status: 'versendet', versendet_am: '2026-11-17T13:30:00Z', link_status: 'aktiv'});
+        return senden(res, v.status, v.body);
+    }
     return fehler(404, 'nicht_gefunden', 'unbekannt');
 }
 
@@ -262,6 +296,32 @@ async function main() {
             angemeldet: sichtbar('angemeldet') ? text('angemeldet') : null,
             portal_link: sichtbar('portal-link') ? doc.getElementById('portal-link').getAttribute('href') : null,
             menue, hinweise,
+            vorgang: doc.getElementById('schrittleiste') ? (() => {
+                const t = (id) => { const e = doc.getElementById(id); return e && !e.classList.contains('hidden') ? e.textContent.replace(/\s+/g, ' ').trim() : null; };
+                const offen = (id) => { const e = doc.getElementById(id); return !!e && !e.classList.contains('hidden'); };
+                const panel = ['pruefen', 'senden', 'status', 'abholen', 'geloescht'].filter(p => offen('panel-' + p));
+                const hinweisBox = doc.getElementById('status-hinweis');
+                return {
+                    titel: doc.getElementById('seitentitel').textContent, seitentitel: doc.title, panel, leiste_sichtbar: offen('schrittleiste'),
+                    schritte: [...doc.querySelectorAll('#schrittleiste li')].map(li => ({nr: li.dataset.schritt, klasse: li.className, marke: li.querySelector('b').textContent, aktuell: li.getAttribute('aria-current') === 'step'})),
+                    meldung: t('meldung'), seite_fehler: offen('seite-fehler') ? {text: t('seite-fehler-text'), nochmal: offen('btn-neu-laden')} : null, laedt: offen('loading'),
+                    pruefen: offen('panel-pruefen') ? {
+                        pdf: doc.getElementById('pdf-viewer').getAttribute('src'), name: t('name-wert'), name_hinweis: t('name-hinweis'), personen: doc.getElementById('personen').value, pers_hinweis: t('pers-hinweis'),
+                        email: doc.getElementById('email').value, email_hinweis: t('email-hinweis'), geb: doc.getElementById('geburtsdatum').value, geb_platz: doc.getElementById('geburtsdatum').placeholder, geb_hinweis: t('geb-hinweis'),
+                        abweichung: t('abweichung'), haken_text: t('angaben-stimmen-text'), haken: doc.getElementById('angaben-stimmen').checked,
+                        fehler: {pers: t('pers-error'), email: t('email-error'), geb: t('geb-error'), haken: t('haken-error'), allgemein: t('pruefen-fehler')}, knopf: doc.getElementById('btn-weiter').textContent, knopf_gesperrt: doc.getElementById('btn-weiter').disabled} : null,
+                    senden: offen('panel-senden') ? {
+                        an: t('senden-an'), mailhinweis: t('senden-mailhinweis-text') && offen('senden-mailhinweis') ? t('senden-mailhinweis-text') : null, versenden_gesperrt: doc.getElementById('btn-versenden').disabled,
+                        vor_ort: offen('vor-ort-karte'), versand_fehler: t('versand-error'), ohne_mail: offen('ohne-mail'), vor_ort_fehler: t('vor-ort-fehler')} : null,
+                    status: offen('panel-status') ? {
+                        hinweis: offen('status-hinweis') ? {klasse: hinweisBox.className.replace('hinweis ', '').trim(), text: t('status-hinweis-text'), aktion: offen('btn-status-aktion') ? doc.getElementById('btn-status-aktion').textContent : null} : null,
+                        zeitstrahl: [...doc.querySelectorAll('#zeitstrahl li')].map(li => ({text: li.firstChild.textContent, zeit: li.querySelector('small') ? li.querySelector('small').textContent : null, offen: li.classList.contains('offen')})),
+                        link_box: ergebnis('demo-link-box'),
+                        neuer_link: offen('btn-neuer-link'), erinnerungen: offen('erinnerungen-zeile') ? doc.getElementById('erinnerungen-aktiv').checked : null, loeschen: offen('btn-loeschen'),
+                        rueckfrage: offen('aktion-rueckfrage') ? {text: t('aktion-rueckfrage-text'), ja: doc.getElementById('btn-rueckfrage-ja').textContent} : null, fehler: t('status-fehler')} : null,
+                    abholen: offen('panel-abholen') ? {hinweis: t('abholen-hinweis-text'), frist: t('abholen-frist'), fehler: t('abholen-fehler'), rueckfrage: offen('abholen-rueckfrage') ? t('abholen-rueckfrage-text') : null} : null,
+                    geloescht: offen('panel-geloescht') ? t('geloescht-text') : null, downloads: zustand.downloads.slice()};
+            })() : null,
             uebersicht: doc.getElementById('uebersicht') && sichtbar('uebersicht') ? {
                 karten: [...doc.querySelectorAll('#karten .karte-zahl')].map(k => ({titel: k.querySelector('.karte-titel').textContent, zahl: k.querySelector('.karte-wert').textContent, gedrueckt: k.getAttribute('aria-pressed')})),
                 filter: [...doc.querySelectorAll('#filter .filter-knopf')].map(f => ({text: f.textContent, gedrueckt: f.getAttribute('aria-pressed')})),

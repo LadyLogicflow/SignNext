@@ -93,12 +93,21 @@ body.berater .eyebrow {
 }
 
 body.berater h1 {
+    overflow-wrap: anywhere;                      /* lange Vorgangsnamen ohne Leerzeichen dürfen nie die Seite verbreitern */
     margin: 6px 0 8px;
     font-family: 'Archivo Black', Archivo, Inter, system-ui, sans-serif;
     font-weight: 400;
     font-size: 34px;
     line-height: 1.15;
     color: var(--navy-900);
+}
+
+body.berater .hinweis-text,
+body.berater .readonly-value,
+body.berater .liste-meldung,
+body.berater .zeitstrahl li,
+body.berater .rueckfrage {
+    overflow-wrap: anywhere;
 }
 
 body.berater .angemeldet {
@@ -602,6 +611,149 @@ body.berater .schritte-kurz li span {
     color: var(--ink-soft);
 }
 
+/* Vorgang: Schrittleiste, Prüfen, Senden, Stand, Abholen */
+body.berater .schritte {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0 0 22px;
+    list-style: none;
+}
+
+body.berater .schritte li {
+    display: flex;
+    flex: 1;
+    gap: 8px;
+    align-items: center;
+    min-width: 130px;
+    padding: 10px 12px;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ink-soft);
+}
+
+body.berater .schritte li b {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--line);
+    color: var(--navy-900);
+    font-size: 13px;
+}
+
+body.berater .schritte li.fertig { color: var(--navy-900); }
+body.berater .schritte li.fertig b { background: var(--lime-600); color: #fff; }
+body.berater .schritte li.jetzt { border: 2px solid var(--lime-600); color: var(--navy-900); }
+body.berater .schritte li.jetzt b { background: var(--navy-900); color: var(--lime-300); }
+
+body.berater .raster.zwei {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    align-items: start;
+}
+
+body.berater .pdf-vorschau {
+    width: 100%;
+    height: 520px;
+    background: #e5e7eb;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+}
+
+body.berater .haken {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    font-weight: 600;
+}
+
+body.berater .haken input[type="checkbox"] {
+    flex: none;
+    width: 24px;
+    height: 24px;
+    margin-top: 1px;
+}
+
+body.berater .btn-gross {
+    min-height: 52px;
+    padding: 12px 28px;
+    font-size: 17px;
+}
+
+body.berater .btn-gefahr-hell {
+    background: #fff;
+    border-color: #fca5a5;
+    color: #b91c1c;
+}
+
+body.berater .hinweis-rot {
+    background: #fef2f2;
+    border: 1px solid #fca5a5;
+    color: #991b1b;
+}
+
+body.berater .hinweis-gruen {
+    background: #f0fdf4;
+    border: 1px solid #86efac;
+    color: #166534;
+}
+
+body.berater .aktionen-spalte {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: flex-start;
+}
+
+body.berater .zeitstrahl {
+    margin: 8px 0 0;
+    padding-left: 18px;
+    list-style: none;
+    border-left: 3px solid var(--line);
+}
+
+body.berater .zeitstrahl li {
+    position: relative;
+    margin-bottom: 14px;
+}
+
+body.berater .zeitstrahl li::before {
+    content: '';
+    position: absolute;
+    left: -26px;
+    top: 5px;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: var(--lime-600);
+}
+
+body.berater .zeitstrahl li.offen::before {
+    background: #fff;
+    border: 2px solid var(--navy-500);
+}
+
+body.berater .zeitstrahl li small {
+    display: block;
+    font-size: 13px;
+    color: var(--ink-soft);
+}
+
+body.berater .form-group small {
+    display: block;
+    margin-top: 4px;
+    font-size: 13px;
+    color: var(--ink-soft);
+}
+
 /* Knöpfe nebeneinander, auf schmalen Bildschirmen umbrechen statt überlaufen */
 body.berater .knopf-zeile {
     display: flex;
@@ -616,7 +768,10 @@ body.berater .knopf-zeile {
     body.berater h1 { font-size: 26px; }
     body.berater .menue a { flex: 1 1 auto; justify-content: center; }
     body.berater .karten-raster,
-    body.berater .schritte-kurz { grid-template-columns: 1fr; }
+    body.berater .schritte-kurz,
+    body.berater .raster.zwei { grid-template-columns: 1fr; }
+    body.berater .schritte li { min-width: 46%; }
+    body.berater .pdf-vorschau { height: 360px; }
     body.berater .zeile { grid-template-columns: 1fr; gap: 6px; }
     body.berater .zeile-aktion { justify-content: flex-start; margin-top: 4px; }
 }

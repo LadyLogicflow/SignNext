@@ -1,303 +1,472 @@
-// SignNext Prüfansicht Beratungsstelle - CSP 'self' konform
+// SignNext Vorgang der Beratungsstelle: Angaben prüfen, an das Mitglied senden, Stand sehen, Dokumente abholen (eine Seite mit Schrittleiste) - CSP 'self' konform.
+// Welcher Schritt erscheint, ergibt sich aus dem Stand des Vorgangs; alle Texte sind für die Beratungsstelle geschrieben, keine Statusnamen aus dem Code.
 'use strict';
 
-const vorgangId = new URLSearchParams(window.location.search).get('id');
-let pruefungData = null;
+const ALLGEMEINER_FEHLER = 'Das hat leider nicht geklappt. Bitte versuchen Sie es noch einmal.';
+const ID_MUSTER = /^\d{1,9}$/;
+const vorgangId = (() => {
+    const roh = new URLSearchParams(window.location.search).get('id') || '';
+    return ID_MUSTER.test(roh) ? roh : null;
+})();
+
+let vorgang = null;                 // GET /vorgaenge/<id>
+let pruefdaten = null;              // GET /vorgaenge/<id>/pruefung (nur solange Angaben geändert werden können)
+let mailZugang = null;
+let istDemo = false;
+let linkBox = null;                 // Link/QR aus dem Demo (Antwort von versenden)
+let rueckfrageJa = null;
+const FEHLEND_TEXT = {email: 'E-Mail', geburtsdatum: 'Geburtsdatum', personen: 'Zahl der Unterschriften'};
+const KRITERIEN = {steuernummer: 'Steuernummer', steuer_id: 'Steuer-ID', mitgliedsnummer: 'Mitgliedsnummer'};
+const el = (id) => document.getElementById(id);
 
 document.addEventListener('DOMContentLoaded', async () => {
     if (!(await Berater.bereit())) return;
+    istDemo = await Berater.istDemo();
+    bindeEreignisse();
     if (!vorgangId) {
-        alert('Keine Vorgangs-ID in URL');
+        seiteFehler('Es wurde kein Vorgang ausgewählt. Bitte öffnen Sie ihn über die Liste Ihrer Vorgänge.', false);
         return;
     }
-
-    await loadPruefung();
-    await loadMailZugang();
-
-    document.getElementById('form-angaben').addEventListener('submit', saveAngaben);
-    document.getElementById('erinnerungen-aktiv').addEventListener('change', saveErinnerungen);
-    document.getElementById('btn-versenden').addEventListener('click', versenden);
-    document.getElementById('btn-ohne-mail').addEventListener('click', ohneMailFortfahren);
-
-    // Live-Validation
-    document.getElementById('geburtsdatum').addEventListener('input', validateGeburtsdatum);
-    document.getElementById('email').addEventListener('input', validateEmail);
-    document.getElementById('personen').addEventListener('change', validatePersonen);
+    await laden('pruefen');
 });
 
 async function api(method, path, body = null) {
-    const opts = {
-        method,
-        credentials: 'same-origin',
-        headers: {'Content-Type': 'application/json'}
-    };
+    const opts = {method, credentials: 'same-origin', headers: {'Content-Type': 'application/json'}};
     if (body) opts.body = JSON.stringify(body);
-
     const res = await fetch('/api/v1' + path, opts);
     if (!res.ok) {
-        const err = await res.json();
-        throw Object.assign(new Error(err.meldung || err.error || 'Fehler'), {daten: err});
+        let daten = {};
+        try { daten = await res.json(); } catch (err) { daten = {}; }
+        throw Object.assign(new Error(daten.meldung || ALLGEMEINER_FEHLER), {daten, status: res.status});
     }
     return res.json();
 }
 
-async function loadPruefung() {
+function name() {
+    return vorgang && typeof vorgang.name === 'string' && vorgang.name ? vorgang.name : `Vorgang ${vorgangId}`;
+}
+
+function datumTag(iso) {
+    const d = new Date(iso);
+    return isNaN(d) ? '' : d.toLocaleDateString('de-DE', {day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Europe/Berlin'});
+}
+
+function datumUhr(iso) {
+    const d = new Date(iso);
+    if (isNaN(d)) return '';
+    return `${datumTag(iso)}, ${d.toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin'})}`;
+}
+
+function zeigeFehler(id, text) {
+    const box = el(id);
+    box.textContent = text || '';
+    box.classList.toggle('hidden', !text);
+}
+
+function meldung(text) {
+    const box = el('meldung');
+    box.textContent = text || '';
+    box.classList.toggle('hidden', !text);
+}
+
+function seiteFehler(text, nochmal) {
+    el('loading').classList.add('hidden');
+    el('vorgang').classList.add('hidden');
+    el('seite-fehler').classList.remove('hidden');
+    el('seite-fehler-text').textContent = text;
+    el('btn-neu-laden').classList.toggle('hidden', !nochmal);
+    el('seitentitel').textContent = 'Vorgang';
+}
+
+// ---------- Laden und Schrittwahl ----------
+
+async function laden(wunsch) {
+    meldung('');
+    el('loading').classList.remove('hidden');
     try {
-        pruefungData = await api('GET', `/vorgaenge/${vorgangId}/pruefung`);
-
-        // PDF laden
-        document.getElementById('pdf-viewer').src = `/api/v1/vorgaenge/${vorgangId}/dokument`;
-
-        // Angaben anzeigen
-        const {name, geburtsdatum, email, personen} = pruefungData;
-
-        document.getElementById('name-wert').textContent = name.wert || '(fehlt)';
-        setHerkunft('name-herkunft', name.herkunft);
-
-        const gebInput = document.getElementById('geburtsdatum');
-        if (geburtsdatum.gesetzt) {
-            gebInput.value = geburtsdatum.wert || '';
-            gebInput.readOnly = true;
-            gebInput.style.backgroundColor = '#f9fafb';
-            setHerkunft('geb-herkunft', 'gesetzt');
-        } else if (geburtsdatum.wert) {
-            gebInput.value = geburtsdatum.wert;
-            setHerkunft('geb-herkunft', geburtsdatum.herkunft);
-        } else {
-            setHerkunft('geb-herkunft', geburtsdatum.herkunft);
-        }
-
-        // Abgleich-Button wenn bestaetigung_noetig
-        if (pruefungData.status === 'bestaetigung_noetig') {
-            const gebGroup = gebInput.closest('.form-group');
-            const abgleichBtn = document.createElement('button');
-            abgleichBtn.type = 'button';
-            abgleichBtn.className = 'btn btn-secondary';
-            abgleichBtn.textContent = 'Abgleich bestätigen';
-            abgleichBtn.style.marginTop = '0.5rem';
-            abgleichBtn.addEventListener('click', async () => {
-                try {
-                    await api('POST', `/vorgaenge/${vorgangId}/abgleich-bestaetigen`, {bestaetigt: true});
-                    alert('Abgleich bestätigt');
-                    await loadPruefung();
-                } catch (err) {
-                    alert('Fehler: ' + err.message);
-                }
-            });
-            gebGroup.appendChild(abgleichBtn);
-        }
-
-        if (email.wert) {
-            document.getElementById('email').value = email.wert;
-        }
-        setHerkunft('email-herkunft', email.herkunft);
-
-        if (personen.wert) {
-            document.getElementById('personen').value = personen.wert;
-        }
-        setHerkunft('pers-herkunft', personen.herkunft);
-
-        // Erinnerungen-Status (nur bei versendet)
-        const erinnerungenCheckbox = document.getElementById('erinnerungen-aktiv');
-        if (pruefungData.status === 'versendet') {
-            erinnerungenCheckbox.checked = !pruefungData.erinnerungen_aus;
-            erinnerungenCheckbox.disabled = false;
-        } else {
-            erinnerungenCheckbox.disabled = true;
-        }
-
-        document.getElementById('loading').classList.add('hidden');
-        document.getElementById('pruefung').classList.remove('hidden');
+        vorgang = await api('GET', `/vorgaenge/${vorgangId}`);
+        pruefdaten = ['bereit', 'bestaetigung_noetig'].includes(vorgang.status) ? await api('GET', `/vorgaenge/${vorgangId}/pruefung`) : null;
     } catch (err) {
-        alert('Fehler beim Laden: ' + err.message);
-    }
-}
-
-function setHerkunft(id, herkunft) {
-    const labels = {
-        pdf: '(aus PDF)',
-        manuell: '(manuell)',
-        abweichend: '(abweichend)',
-        fehlt: '(fehlt)',
-        gesetzt: '(gesetzt)'
-    };
-    const el = document.getElementById(id);
-    el.textContent = labels[herkunft] || '';
-    el.className = 'herkunft';
-    if (herkunft === 'fehlt' || herkunft === 'abweichend') {
-        el.classList.add('warning-text');
-    } else if (herkunft === 'gesetzt') {
-        el.classList.add('success-text');
-    }
-}
-
-function validateGeburtsdatum() {
-    const input = document.getElementById('geburtsdatum');
-    const error = document.getElementById('geb-error');
-    const value = input.value.trim();
-
-    if (!value) {
-        hideError('geb-error');
-        return true;
-    }
-
-    if (!/^\d{2}\.\d{2}\.\d{4}$/.test(value)) {
-        showError('geb-error', 'Format: TT.MM.JJJJ');
-        return false;
-    }
-
-    hideError('geb-error');
-    return true;
-}
-
-function validateEmail() {
-    const input = document.getElementById('email');
-    const error = document.getElementById('email-error');
-    const value = input.value.trim();
-
-    if (!value) {
-        hideError('email-error');
-        return true;
-    }
-
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
-        showError('email-error', 'Keine gültige E-Mail-Adresse');
-        return false;
-    }
-
-    hideError('email-error');
-    return true;
-}
-
-function validatePersonen() {
-    const select = document.getElementById('personen');
-    const error = document.getElementById('pers-error');
-
-    if (!select.value) {
-        showError('pers-error', 'Bitte Personenzahl wählen');
-        return false;
-    }
-
-    hideError('pers-error');
-    return true;
-}
-
-async function saveAngaben(e) {
-    e.preventDefault();
-
-    if (!validateGeburtsdatum() || !validateEmail() || !validatePersonen()) {
-        alert('Bitte Fehler beheben');
+        if (err.status === 404) seiteFehler('Dieser Vorgang wurde nicht gefunden. Vielleicht wurde er gelöscht.', false);
+        else seiteFehler(err.message, true);
         return;
     }
-
-    const geburtsdatum = document.getElementById('geburtsdatum').value.trim() || null;
-    const email = document.getElementById('email').value.trim() || null;
-    const personen = document.getElementById('personen').value ? parseInt(document.getElementById('personen').value) : null;
-
-    try {
-        await api('PUT', `/vorgaenge/${vorgangId}/angaben`, {geburtsdatum, email, personen});
-        alert('Angaben gespeichert');
-        await loadPruefung();
-    } catch (err) {
-        alert('Fehler: ' + err.message);
-    }
+    el('seite-fehler').classList.add('hidden');
+    el('loading').classList.add('hidden');
+    el('vorgang').classList.remove('hidden');
+    await zeigeSchritt(wunsch);
 }
 
-async function loadMailZugang() {
-    try {
-        const zugang = await api('GET', '/mail-zugang');
-        const status = document.getElementById('mail-status');
-
-        if (zugang.geprueft_am) {
-            status.textContent = `✓ Mail-Zugang erfolgreich geprüft (${zugang.host || 'unbekannt'})`;
-            status.className = 'success-text';
-        } else if (zugang.konfiguriert) {
-            status.textContent = `⚠ Mail-Zugang eingerichtet (${zugang.host || 'unbekannt'}), aber nicht geprüft`;
-            status.className = 'warning-text';
-        } else {
-            status.textContent = '✗ Kein Mail-Zugang eingerichtet';
-            status.className = 'error-text';
-        }
-    } catch (err) {
-        const status = document.getElementById('mail-status');
-        status.textContent = 'Fehler beim Laden';
-        status.className = 'error-text';
-    }
-}
-
-async function saveErinnerungen() {
-    const an = document.getElementById('erinnerungen-aktiv').checked;
-
-    try {
-        await api('PUT', `/vorgaenge/${vorgangId}/erinnerungen`, {an});
-    } catch (err) {
-        showError('erinnerungen-error', err.message);
-    }
-}
-
-async function versenden() {
-    if (!document.getElementById('versand-bestaetigung').checked) {
-        showError('versand-error', 'Bitte bestätigen Sie den Versand');
-        return;
-    }
-
-    if (!pruefungData.versandbereit_pdf || pruefungData.fehlend.length > 0) {
-        const fehlt = pruefungData.fehlend.join(', ');
-        showError('versand-error', `Vorgang kann nicht versendet werden. Fehlend: ${fehlt}`);
-        return;
-    }
-
-    if (!confirm('Link wirklich versenden?')) {
-        return;
-    }
-
-    try {
-        const r = await api('POST', `/vorgaenge/${vorgangId}/versenden`, {bestaetigt: true});
-        zeigeDemoLink(r);
-        alert('Link wurde versendet!');
-        document.getElementById('versand-hinweise').innerHTML = '<p class="success-text">✓ Link erfolgreich versendet</p>';
-        document.getElementById('btn-versenden').disabled = true;
-    } catch (err) {
-        showError('versand-error', err.message);
-        // Demo: die Mail ging nicht; der Server bietet an, ohne Mail fortzufahren (fallback: "ohne_mail"), der Link steht dann am Bildschirm
-        document.getElementById('ohne-mail').classList.toggle('hidden', !(err.daten && err.daten.fallback === 'ohne_mail'));
-    }
-}
-
-// Demo: Link und QR am Bildschirm, mit Mail (ohne_mail false) und ohne Mail (ohne_mail true)
-function zeigeDemoLink(antwort) {
-    if (!(antwort && antwort.demo)) return;
-    Berater.linkBoxZeigen(document.getElementById('demo-link-box'), {
-        titel: antwort.demo.ohne_mail ? 'Demo: Zugangslink am Bildschirm (ohne Mail)' : 'Demo: Zugangslink am Bildschirm',
-        link: antwort.demo.link,
-        qr_svg: antwort.demo.qr_svg,
-        hinweis: antwort.demo.geburtsdatum_hinweis
+function schrittleiste(aktuell) {
+    document.querySelectorAll('#schrittleiste li').forEach(li => {
+        const nr = Number(li.dataset.schritt);
+        li.className = nr < aktuell ? 'fertig' : (nr === aktuell ? 'jetzt' : '');
+        li.querySelector('b').textContent = nr < aktuell ? '✓' : String(nr);
+        if (nr === aktuell) li.setAttribute('aria-current', 'step'); else li.removeAttribute('aria-current');
     });
 }
 
-async function ohneMailFortfahren() {
-    const knopf = document.getElementById('btn-ohne-mail');
-    hideError('versand-error');
+function panel(welches, titel, schritt) {
+    ['pruefen', 'senden', 'status', 'abholen', 'geloescht'].forEach(p => el('panel-' + p).classList.toggle('hidden', p !== welches));
+    el('seitentitel').textContent = titel;
+    document.title = `${titel} - SignNext`;
+    schrittleiste(schritt);
+    el('schrittleiste').classList.toggle('hidden', welches === 'geloescht');
+    zeigeFehler('status-fehler', '');
+    zeigeFehler('abholen-fehler', '');
+    el('aktion-rueckfrage').classList.add('hidden');
+    el('abholen-rueckfrage').classList.add('hidden');
+}
+
+async function zeigeSchritt(wunsch) {
+    const status = vorgang.status;
+    if (status === 'geloescht') {
+        zeigeGeloescht('Dieser Vorgang wurde gelöscht.');
+    } else if (['bereit', 'bestaetigung_noetig'].includes(status)) {
+        if (wunsch === 'senden' && status === 'bereit' && pruefdaten && pruefdaten.fehlend.length === 0) await zeigeSenden();
+        else zeigePruefen();
+    } else if (status === 'abgeschlossen') {
+        zeigeAbholen();
+    } else {
+        zeigeStatus();
+    }
+}
+
+// ---------- Schritt 2: Angaben prüfen ----------
+
+const HERKUNFT_TEXT = {
+    email: {pdf: 'Aus dem Anschreiben übernommen.', manuell: 'Von Ihnen eingetragen.', abweichend: 'Anschreiben und Protokoll nennen unterschiedliche Adressen – bitte prüfen.', fehlt: 'Fehlt noch – bitte eintragen.'},
+    personen: {pdf: 'Aus dem Steuerprotokoll erkannt.', manuell: 'Von Ihnen festgelegt.', abweichend: 'Bitte prüfen.', fehlt: 'Bitte wählen.'}
+};
+
+function zeigePruefen() {
+    panel('pruefen', 'Angaben prüfen', 2);
+    const d = pruefdaten;
+    el('pdf-viewer').src = `/api/v1/vorgaenge/${vorgangId}/dokument`;
+    el('name-wert').textContent = d.name && d.name.wert ? d.name.wert : 'Der Name konnte nicht gelesen werden.';
+    el('name-hinweis').textContent = `Vorgang: ${name()}`;
+    el('personen').value = d.personen && d.personen.wert ? String(d.personen.wert) : '';
+    el('pers-hinweis').textContent = HERKUNFT_TEXT.personen[d.personen && d.personen.herkunft] || '';
+    el('email').value = d.email && d.email.wert ? d.email.wert : '';
+    el('email-hinweis').textContent = HERKUNFT_TEXT.email[d.email && d.email.herkunft] || (d.email && d.email.wert ? '' : HERKUNFT_TEXT.email.fehlt);
+    const g = d.geburtsdatum || {};
+    el('geburtsdatum').value = g.wert || '';
+    el('geburtsdatum').placeholder = g.gesetzt && !g.wert ? 'eingetragen – zum Ändern neu eingeben' : 'TT.MM.JJJJ';
+    el('geb-hinweis').textContent = g.gesetzt
+        ? (g.wert ? 'Aus dem Protokoll übernommen.' : 'Von Ihnen eingetragen (aus Datenschutzgründen nicht angezeigt). Zum Ändern neu eintragen.')
+        : 'Fehlt noch – bitte eintragen.';
+    ['pers-error', 'email-error', 'geb-error', 'haken-error'].forEach(i => zeigeFehler(i, ''));
+    zeigeFehler('pruefen-fehler', '');
+    el('angaben-stimmen').checked = false;
+    const abweichend = vorgang.status === 'bestaetigung_noetig';
+    el('abweichung').classList.toggle('hidden', !abweichend);
+    el('angaben-stimmen-text').textContent = abweichend ? 'Ja, die Angaben stimmen und beide Dokumente gehören zu diesem Mitglied.' : 'Ja, die Angaben stimmen.';
+    if (abweichend) {
+        const liste = ((d.abgleich && d.abgleich.abweichend) || []).map(k => KRITERIEN[k]).filter(Boolean);
+        el('abweichung-text').textContent = liste.length
+            ? `Bitte kurz prüfen: Anschreiben und Steuerprotokoll weichen bei „${liste.join('“ und „')}“ voneinander ab. Gehören beide zu demselben Mitglied?`
+            : 'Bitte kurz prüfen: Anschreiben und Steuerprotokoll lassen sich nicht sicher demselben Mitglied zuordnen. Gehören beide zusammen?';
+    }
+    el('btn-weiter').disabled = false;
+}
+
+function pruefeEingabe() {
+    let ok = true;
+    const d = pruefdaten;
+    const fehler = (id, text) => { zeigeFehler(id, text); ok = false; };
+    ['pers-error', 'email-error', 'geb-error', 'haken-error'].forEach(i => zeigeFehler(i, ''));
+    if (!['1', '2'].includes(el('personen').value)) fehler('pers-error', 'Bitte wählen Sie, wer unterschreibt.');
+    const mail = el('email').value.trim();
+    if (!mail) fehler('email-error', 'Bitte tragen Sie die E-Mail-Adresse des Mitglieds ein.');
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) fehler('email-error', 'Das ist keine gültige E-Mail-Adresse.');
+    const geb = el('geburtsdatum').value.trim();
+    if (!geb && !(d.geburtsdatum && d.geburtsdatum.gesetzt)) fehler('geb-error', 'Bitte tragen Sie das Geburtsdatum ein (TT.MM.JJJJ).');
+    else if (geb && !/^\d{2}\.\d{2}\.\d{4}$/.test(geb)) fehler('geb-error', 'Bitte im Format TT.MM.JJJJ eingeben, zum Beispiel 01.02.1960.');
+    if (!el('angaben-stimmen').checked) fehler('haken-error', 'Bitte bestätigen Sie, dass die Angaben stimmen.');
+    return ok;
+}
+
+function geaenderteAngaben() {
+    const d = pruefdaten;
+    const body = {};
+    const mail = el('email').value.trim();
+    if (mail !== ((d.email && d.email.wert) || '')) body.email = mail;
+    const geb = el('geburtsdatum').value.trim();
+    if (geb && geb !== ((d.geburtsdatum && d.geburtsdatum.wert) || '')) body.geburtsdatum = geb;
+    const personen = Number(el('personen').value);
+    if (personen !== ((d.personen && d.personen.wert) || 0)) body.personen = personen;
+    return body;
+}
+
+async function angabenWeiter(e) {
+    e.preventDefault();
+    zeigeFehler('pruefen-fehler', '');
+    if (!pruefeEingabe()) return;
+    const knopf = el('btn-weiter');
     knopf.disabled = true;
     try {
-        const r = await api('POST', `/vorgaenge/${vorgangId}/versenden`, {bestaetigt: true, ohne_mail: true});
-        zeigeDemoLink(r);
-        document.getElementById('ohne-mail').classList.add('hidden');
-        document.getElementById('versand-hinweise').textContent = 'Ohne Mail freigegeben: Der Link steht unten am Bildschirm. Bitte geben Sie ihn selbst weiter.';
-        document.getElementById('btn-versenden').disabled = true;
+        const aenderung = geaenderteAngaben();
+        if (Object.keys(aenderung).length) await api('PUT', `/vorgaenge/${vorgangId}/angaben`, aenderung);
+        if (vorgang.status === 'bestaetigung_noetig') await api('POST', `/vorgaenge/${vorgangId}/abgleich-bestaetigen`, {bestaetigt: true});
+        vorgang = await api('GET', `/vorgaenge/${vorgangId}`);
+        pruefdaten = ['bereit', 'bestaetigung_noetig'].includes(vorgang.status) ? await api('GET', `/vorgaenge/${vorgangId}/pruefung`) : null;
+        if (pruefdaten && pruefdaten.fehlend.length) {
+            zeigePruefen();
+            zeigeFehler('pruefen-fehler', 'Es fehlt noch: ' + pruefdaten.fehlend.map(f => FEHLEND_TEXT[f] || f).join(', ') + '.');
+            return;
+        }
+        await zeigeSchritt('senden');
     } catch (err) {
-        showError('versand-error', err.message);
+        const feld = {email: 'email-error', geburtsdatum: 'geb-error', personen: 'pers-error'}[err.daten && err.daten.feld];
+        if (feld) zeigeFehler(feld, err.message);
+        else zeigeFehler('pruefen-fehler', err.message);
     } finally {
         knopf.disabled = false;
     }
 }
 
-function showError(id, msg) {
-    const el = document.getElementById(id);
-    el.textContent = msg;
-    el.classList.remove('hidden');
+// ---------- Schritt 3: Senden ----------
+
+async function zeigeSenden() {
+    panel('senden', 'An das Mitglied senden', 3);
+    el('senden-an').textContent = (pruefdaten.email && pruefdaten.email.wert) || '';
+    zeigeFehler('versand-error', '');
+    zeigeFehler('vor-ort-fehler', '');
+    el('ohne-mail').classList.add('hidden');
+    el('vor-ort-karte').classList.toggle('hidden', !istDemo);
+    try {
+        mailZugang = await api('GET', '/mail-zugang');
+    } catch (err) {
+        mailZugang = null;
+    }
+    let hinweis = '';
+    if (mailZugang && mailZugang.konfiguriert === false) hinweis = 'Ihr Mail-Zugang fehlt noch. Richten Sie ihn ein, dann können Sie den Link per E-Mail senden.';
+    else if (mailZugang && mailZugang.konfiguriert === true && !mailZugang.geprueft_am) hinweis = 'Ihr Mail-Zugang ist noch nicht geprüft. Senden Sie zuerst eine Testmail an sich selbst.';
+    el('senden-mailhinweis-text').textContent = hinweis;
+    el('senden-mailhinweis').classList.toggle('hidden', !hinweis);
+    el('btn-versenden').disabled = !!hinweis;
 }
 
-function hideError(id) {
-    document.getElementById(id).classList.add('hidden');
+async function nachVersand(text, antwort) {
+    linkBox = antwort && antwort.demo ? antwort.demo : null;
+    await laden('status');
+    meldung(text);
+}
+
+async function versenden() {
+    zeigeFehler('versand-error', '');
+    el('ohne-mail').classList.add('hidden');
+    const knopf = el('btn-versenden');
+    knopf.disabled = true;
+    try {
+        const r = await api('POST', `/vorgaenge/${vorgangId}/versenden`, {bestaetigt: true});
+        const an = (pruefdaten && pruefdaten.email && pruefdaten.email.wert) || 'das Mitglied';
+        await nachVersand(`Der Link wurde per E-Mail an ${an} gesendet.`, r);
+    } catch (err) {
+        zeigeFehler('versand-error', err.message);
+        el('ohne-mail').classList.toggle('hidden', !(err.daten && err.daten.fallback === 'ohne_mail'));
+        knopf.disabled = false;
+    }
+}
+
+async function ohneMail(fehlerId, knopfId) {
+    zeigeFehler(fehlerId, '');
+    const knopf = el(knopfId);
+    knopf.disabled = true;
+    try {
+        const r = await api('POST', `/vorgaenge/${vorgangId}/versenden`, {bestaetigt: true, ohne_mail: true});
+        await nachVersand('Der Vorgang ist freigegeben, ohne E-Mail. Bitte geben Sie den Link unten selbst an das Mitglied weiter.', r);
+    } catch (err) {
+        zeigeFehler(fehlerId, err.message);
+        knopf.disabled = false;
+    }
+}
+
+// ---------- Schritt 3 danach: Stand ----------
+
+const STATUS_TITEL = {
+    versenden: 'Wird gesendet', versendet: 'Wartet auf Unterschrift', versand_unklar: 'Versand unklar', unterschrieben: 'Unterschrieben', abschluss_laeuft: 'Unterschrieben',
+    abschluss_fehlgeschlagen: 'Fertigstellung hakt', neu: 'Wird ausgewertet'
+};
+
+function statusHinweis() {
+    const s = vorgang.status;
+    const l = vorgang.link_status;
+    if (s === 'versendet' && l === 'abgelaufen') return {art: 'gelb', aktion: 'Neuen Link senden', text: 'Der Link ist abgelaufen. Das Mitglied hat nicht rechtzeitig unterschrieben. Mit einem neuen Link kann es noch einmal versuchen – der alte funktioniert dann nicht mehr.'};
+    if (s === 'versendet' && l === 'gesperrt') return {art: 'gelb', aktion: 'Neuen Link senden', text: 'Der Link ist gesperrt, weil das Geburtsdatum zu oft falsch eingegeben wurde. Mit einem neuen Link kann das Mitglied es noch einmal versuchen.'};
+    if (s === 'versand_unklar') return {art: 'rot', aktion: 'Neuen Link senden', text: 'Wir wissen nicht, ob die E-Mail angekommen ist. Bitte schauen Sie in Ihrem Postfach unter „Gesendet“ nach. Erst wenn sie dort fehlt, senden Sie einen neuen Link.'};
+    if (s === 'unterschrieben' || s === 'abschluss_laeuft') return {art: 'blau', text: 'Die Unterschrift ist eingegangen. Das Dokument wird gerade fertiggestellt – das dauert meist nur einen Moment. Mit „Stand aktualisieren“ sehen Sie, ob es fertig ist.'};
+    if (s === 'abschluss_fehlgeschlagen') return {art: 'rot', text: 'Die Fertigstellung hat nicht geklappt. Das System versucht es automatisch noch einmal. Bitte schauen Sie später wieder vorbei.'};
+    if (s === 'versenden') return {art: 'blau', text: 'Der Link wird gerade gesendet …'};
+    if (s === 'neu') return {art: 'blau', text: 'Der Vorgang wird noch ausgewertet. Bitte aktualisieren Sie in einem Moment.'};
+    return null;
+}
+
+function zeigeStatus() {
+    const s = vorgang.status;
+    panel('status', `${name()} · ${STATUS_TITEL[s] || String(s).replace(/_/g, ' ')}`, 3);
+    const h = statusHinweis();
+    const box = el('status-hinweis');
+    box.classList.toggle('hidden', !h);
+    box.className = 'hinweis' + (h ? ' hinweis-' + h.art : '') + (h ? '' : ' hidden');
+    if (h) {
+        el('status-hinweis-text').textContent = h.text;
+        const knopf = el('btn-status-aktion');
+        knopf.classList.toggle('hidden', !h.aktion);
+        knopf.textContent = h.aktion || '';
+    }
+    // Link und QR aus dem Demo (nur direkt nach dem Versand)
+    const lb = el('demo-link-box');
+    if (linkBox) {
+        Berater.linkBoxZeigen(lb, {titel: linkBox.ohne_mail ? 'Zugangslink am Bildschirm (ohne E-Mail)' : 'Zugangslink am Bildschirm', link: linkBox.link, qr_svg: linkBox.qr_svg, hinweis: linkBox.geburtsdatum_hinweis});
+        lb.classList.remove('hidden');
+    } else {
+        lb.classList.add('hidden');
+        lb.textContent = '';
+    }
+    zeichneZeitstrahl();
+    const nachfassen = s === 'versendet';
+    el('btn-neuer-link').classList.toggle('hidden', !(nachfassen && !(h && h.aktion)));
+    el('erinnerungen-zeile').classList.toggle('hidden', !nachfassen);
+    el('erinnerungen-aktiv').checked = !vorgang.erinnerungen_aus;
+    el('btn-loeschen').classList.toggle('hidden', ['versenden', 'abschluss_laeuft'].includes(s));
+    zeigeFehler('status-fehler', '');
+}
+
+function zeichneZeitstrahl() {
+    const liste = el('zeitstrahl');
+    liste.textContent = '';
+    const punkt = (text, zeit, offen) => {
+        const li = document.createElement('li');
+        if (offen) li.className = 'offen';
+        const t = document.createElement(offen ? 'strong' : 'span');
+        t.textContent = text;
+        li.appendChild(t);
+        if (zeit) {
+            const small = document.createElement('small');
+            small.textContent = zeit;
+            li.appendChild(small);
+        }
+        liste.appendChild(li);
+    };
+    punkt('Hochgeladen', datumUhr(vorgang.erstellt));
+    if (vorgang.bestaetigt_am) punkt('Angaben bestätigt', datumUhr(vorgang.bestaetigt_am));
+    if (vorgang.versendet_am) punkt('Link an das Mitglied gesendet', datumUhr(vorgang.versendet_am));
+    if (vorgang.unterschrieben_am) punkt(vorgang.personen === 2 ? 'Beide haben unterschrieben' : 'Unterschrieben', datumUhr(vorgang.unterschrieben_am));
+    if (vorgang.abgeschlossen_am) punkt('Fertiggestellt', datumUhr(vorgang.abgeschlossen_am));
+    const s = vorgang.status;
+    const l = vorgang.link_status;
+    if (s === 'versendet') punkt('Wartet auf die Unterschrift', l === 'aktiv' ? 'Der Link ist gültig.' : (l === 'abgelaufen' ? 'Der Link ist abgelaufen.' : (l === 'gesperrt' ? 'Der Link ist gesperrt.' : '')), true);
+    else if (s === 'versand_unklar') punkt('Versand unklar', 'Bitte im Postfach nachsehen.', true);
+    else if (s === 'unterschrieben' || s === 'abschluss_laeuft') punkt('Wird fertiggestellt', '', true);
+    else if (s === 'abschluss_fehlgeschlagen') punkt('Fertigstellung hakt', 'Das System versucht es erneut.', true);
+}
+
+function frage(text, jaText, jaFunktion, gefahr, ziel) {
+    const box = el(ziel === 'abholen' ? 'abholen-rueckfrage' : 'aktion-rueckfrage');
+    el(ziel === 'abholen' ? 'abholen-rueckfrage-text' : 'aktion-rueckfrage-text').textContent = text;
+    const ja = el(ziel === 'abholen' ? 'btn-abholen-ja' : 'btn-rueckfrage-ja');
+    ja.textContent = jaText;
+    ja.className = 'btn btn-klein ' + (gefahr ? 'btn-gefahr' : 'btn-primary');
+    ja.disabled = false;
+    rueckfrageJa = jaFunktion;
+    box.classList.remove('hidden');
+}
+
+async function neuerLink() {
+    try {
+        await api('POST', `/vorgaenge/${vorgangId}/neuer-link`, {bestaetigt: true});
+        linkBox = null;
+        await laden('status');
+        meldung('Ein neuer Link wurde per E-Mail an das Mitglied gesendet.');
+    } catch (err) {
+        el('aktion-rueckfrage').classList.add('hidden');
+        zeigeFehler('status-fehler', err.message);
+    }
+}
+
+async function loeschen(ziel) {
+    try {
+        await api('DELETE', `/vorgaenge/${vorgangId}`, {bestaetigt: true});
+        zeigeGeloescht(`„${name()}“ wurde gelöscht. Die Dokumente sind entfernt.`);
+    } catch (err) {
+        el(ziel === 'abholen' ? 'abholen-rueckfrage' : 'aktion-rueckfrage').classList.add('hidden');
+        zeigeFehler(ziel === 'abholen' ? 'abholen-fehler' : 'status-fehler', err.message);
+    }
+}
+
+function zeigeGeloescht(text) {
+    panel('geloescht', 'Vorgang gelöscht', 3);
+    el('geloescht-text').textContent = text;
+    meldung('');
+}
+
+async function erinnerungenUmschalten() {
+    const an = el('erinnerungen-aktiv').checked;
+    try {
+        await api('PUT', `/vorgaenge/${vorgangId}/erinnerungen`, {an});
+        vorgang.erinnerungen_aus = !an;
+        zeigeFehler('status-fehler', '');
+    } catch (err) {
+        el('erinnerungen-aktiv').checked = !an;
+        zeigeFehler('status-fehler', err.message);
+    }
+}
+
+// ---------- Schritt 4: Abholen ----------
+
+function zeigeAbholen() {
+    panel('abholen', `${name()} · Fertig`, 4);
+    const zwei = vorgang.personen === 2;
+    const wann = vorgang.unterschrieben_am ? ` (${datumUhr(vorgang.unterschrieben_am)})` : '';
+    el('abholen-hinweis-text').textContent = `${zwei ? 'Beide Personen haben unterschrieben' : 'Die Unterschrift ist eingegangen'}${wann}. Das Dokument ist fertig.`;
+    const frist = vorgang.aufbewahrung_bis ? datumTag(vorgang.aufbewahrung_bis) : '';
+    el('abholen-frist').textContent = frist
+        ? `Beide Dateien bleiben bis ${frist} hier abrufbar und werden danach automatisch gelöscht.`
+        : 'Beide Dateien bleiben hier abrufbar und werden nach Ablauf der Aufbewahrungsfrist automatisch gelöscht.';
+    zeigeFehler('abholen-fehler', '');
+}
+
+async function herunterladen(art) {
+    zeigeFehler('abholen-fehler', '');
+    try {
+        const res = await fetch(`/api/v1/vorgaenge/${vorgangId}/download/${art}`, {credentials: 'same-origin'});
+        if (!res.ok) {
+            let daten = {};
+            try { daten = await res.json(); } catch (err) { daten = {}; }
+            throw new Error(daten.meldung || 'Der Download hat nicht geklappt. Bitte versuchen Sie es noch einmal.');
+        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${art}_${vorgangId}.pdf`;
+        a.click();
+        URL.revokeObjectURL(url);
+    } catch (err) {
+        zeigeFehler('abholen-fehler', err.message);
+    }
+}
+
+// ---------- Ereignisse ----------
+
+function bindeEreignisse() {
+    el('form-angaben').addEventListener('submit', angabenWeiter);
+    el('btn-versenden').addEventListener('click', versenden);
+    el('btn-ohne-mail').addEventListener('click', () => ohneMail('versand-error', 'btn-ohne-mail'));
+    el('btn-vor-ort').addEventListener('click', () => ohneMail('vor-ort-fehler', 'btn-vor-ort'));
+    el('btn-zurueck-pruefen').addEventListener('click', () => { if (pruefdaten) zeigePruefen(); });
+    el('btn-neu-laden').addEventListener('click', () => laden('pruefen'));
+    el('btn-aktualisieren').addEventListener('click', async () => { linkBox = null; await laden('status'); });
+    el('btn-status-aktion').addEventListener('click', () => frage('Einen neuen Link per E-Mail an das Mitglied senden? Der bisherige Link funktioniert dann nicht mehr.', 'Ja, neuen Link senden', neuerLink, false));
+    el('btn-neuer-link').addEventListener('click', () => frage('Einen neuen Link per E-Mail an das Mitglied senden? Der bisherige Link funktioniert dann nicht mehr.', 'Ja, neuen Link senden', neuerLink, false));
+    el('btn-loeschen').addEventListener('click', () => frage(`„${name()}“ endgültig löschen? Die Dokumente und der Vorgang werden entfernt. Das kann nicht rückgängig gemacht werden.`, 'Ja, löschen', () => loeschen('status'), true));
+    el('btn-rueckfrage-ja').addEventListener('click', async () => { el('btn-rueckfrage-ja').disabled = true; if (rueckfrageJa) await rueckfrageJa(); });
+    el('btn-rueckfrage-nein').addEventListener('click', () => el('aktion-rueckfrage').classList.add('hidden'));
+    el('erinnerungen-aktiv').addEventListener('change', erinnerungenUmschalten);
+    el('btn-dl-dokument').addEventListener('click', () => herunterladen('dokument'));
+    el('btn-dl-nachweis').addEventListener('click', () => herunterladen('nachweis'));
+    el('btn-abholen-loeschen').addEventListener('click', () => frage(`„${name()}“ endgültig löschen? Die Dokumente und der Nachweis werden entfernt. Das kann nicht rückgängig gemacht werden.`, 'Ja, löschen', () => loeschen('abholen'), true, 'abholen'));
+    el('btn-abholen-ja').addEventListener('click', async () => { el('btn-abholen-ja').disabled = true; if (rueckfrageJa) await rueckfrageJa(); });
+    el('btn-abholen-nein').addEventListener('click', () => el('abholen-rueckfrage').classList.add('hidden'));
 }

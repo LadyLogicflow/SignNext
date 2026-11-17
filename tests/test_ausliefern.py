@@ -201,8 +201,9 @@ class TestBeraterRahmenStatik(unittest.TestCase):
         for name in self.BERATER:
             text = (UI / (name + ".html")).read_text(encoding="utf-8")
             self.assertIn('<body class="berater">', text, name)
-            for teil in ('href="berater.css"', 'src="wortmarke.js"', 'src="qrbild.js"', 'src="berater.js"', 'id="berater-nav"', 'id="hinweisleiste"', 'id="wortmarke"', "<h1>"):
+            for teil in ('href="berater.css"', 'src="wortmarke.js"', 'src="qrbild.js"', 'src="berater.js"', 'id="berater-nav"', 'id="hinweisleiste"', 'id="wortmarke"'):
                 self.assertIn(teil, text, (name, teil))
+            self.assertRegex(text, r"<h1[ >]", name)
             self.assertEqual(text.count('aria-current="page"'), 1, name)
             self.assertLess(text.index('src="berater.js"'), text.index('src="%s.js"' % name), name)      # Rahmen vor dem Seitenskript
 
@@ -213,6 +214,12 @@ class TestBeraterRahmenStatik(unittest.TestCase):
         self.assertRegex(regel.group(1), r"flex-wrap:\s*wrap")
         for name in self.BERATER:
             self.assertNotIn('style="display: flex', (UI / (name + ".html")).read_text(encoding="utf-8"), name)    # Knopfreihen über .knopf-zeile (umbrechend)
+
+    def test_lange_namen_verbreitern_die_seite_nicht(self):
+        css = (UI / "berater.css").read_text(encoding="utf-8")
+        regel = re.search(r"body\.berater h1\s*\{([^}]*)\}", css)
+        self.assertIsNotNone(regel)
+        self.assertRegex(regel.group(1), r"overflow-wrap:\s*anywhere")                                  # Vorgangsname ohne Leerzeichen in der Überschrift (Chromium-Probe, Handy)
 
     def test_mitglieder_seiten_bleiben_ohne_berater_stil(self):
         for name in ("unterschrift", "download", "handy"):
