@@ -1,0 +1,4 @@
+Schriften der BSt-Next-Oberfläche (Stylebook): Inter (Text), Archivo Black (Überschriften), JetBrains Mono (Beschriftungen).
+Alle drei stehen unter der SIL Open Font License 1.1 (Lizenztexte: LIZENZ-*-OFL.txt) und werden von dieser Anwendung selbst ausgeliefert (kein externer Schriftendienst).
+Die woff2-Dateien sind dieselben wie bei SortNext (fonts/). Hinweis: Der Kopf (Copyright-Zeile) der Lizenzdateien für Inter und Archivo Black ist aus den Projekten
+übernommen, der Lizenztext darunter ist der Standardtext der OFL 1.1; bitte bei Gelegenheit gegen die Originale der Projekte prüfen.

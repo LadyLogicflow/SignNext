@@ -106,6 +106,16 @@ class TestAuslieferung(Basis):
         self.assertEqual(self.c.get("/api/version").status_code, 200)
         self.assertEqual(self.c.get("/api/v1/me").status_code, 401)
 
+    def test_mitgelieferte_schriften_werden_ausgeliefert_und_haben_eine_lizenz(self):
+        for name in ("Inter", "ArchivoBlack", "JetBrainsMono"):
+            r = self.c.get("/fonts/%s.woff2" % name)
+            self.assertEqual((r.status_code, r.headers["Content-Type"]), (200, "font/woff2"), name)
+            self.assertEqual(r.get_data(), (UI / "fonts" / ("%s.woff2" % name)).read_bytes())
+            text = (UI / "fonts" / ("LIZENZ-%s-OFL.txt" % name)).read_text(encoding="utf-8")
+            self.assertIn("SIL OPEN FONT LICENSE Version 1.1", text, name)
+        for name in ("LIES-MICH.txt", "LIZENZ-Inter-OFL.txt"):
+            self.assertEqual(self.c.get("/fonts/" + name).status_code, 404, name)                   # Lizenztexte liegen bei den Dateien, werden aber nicht ausgeliefert
+
     def test_asset_liste_kommt_aus_dem_ordner(self):
         for name in os.listdir(UI):
             erlaubt = bool(ui_ausliefern.ASSET.fullmatch(name))
@@ -148,7 +158,7 @@ class TestSchutzwaechterUI(unittest.TestCase):
             self.assertNotRegex(text, r"(?i)(localStorage|sessionStorage|document\.cookie)", name)
 
     def test_nie_rechtssicher(self):
-        for datei in list(UI.glob("*")):
+        for datei in [d for d in UI.glob("*") if d.is_file()]:                                      # Schriften liegen im Unterordner fonts/
             self.assertNotIn("rechtssicher", datei.read_text(encoding="utf-8").lower(), datei.name)
 
     def test_eigene_innerhtml_nur_mit_festen_texten(self):
