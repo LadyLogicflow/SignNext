@@ -27,41 +27,41 @@
         <div id="hinweisleiste"></div>
 
         <main id="app">
-            <div id="loading" class="loading">Lade Einstellungen...</div>
+            <div id="loading" class="loading">Lade Einstellungen …</div>
+            <div id="seite-fehler" class="error hidden" role="alert"></div>
 
             <div id="einstellungen" class="hidden">
+                <div id="seite-meldung" class="liste-meldung hidden" role="status"></div>
                 <section class="card">
-                    <h2>Datenschutzinformation</h2>
-                    <form id="form-einstellungen">
+                    <h2>Angaben für die Datenschutzinformation</h2>
+                    <p class="upload-regeln">Diese Angaben sehen Mitglieder, bevor sie unterschreiben.</p>
+                    <form id="form-einstellungen" novalidate>
                         <div class="form-group">
-                            <label for="verantwortlicher">Verantwortlicher *</label>
-                            <textarea id="verantwortlicher" rows="4" minlength="5" maxlength="500" required placeholder="Name, Anschrift, Kontakt"></textarea>
-                            <small>5-500 Zeichen (Name, Anschrift, Kontakt)</small>
+                            <label for="verantwortlicher">Name, Anschrift und Kontakt Ihrer Beratungsstelle</label>
+                            <textarea id="verantwortlicher" rows="4" maxlength="500" required placeholder="Beratungsstelle Beispiel, Musterweg 1, 12345 Musterstadt, kontakt@beispiel.de"></textarea>
+                            <small>Zwischen 5 und 500 Zeichen.</small>
                             <div id="verantwortlicher-error" class="field-error hidden"></div>
                         </div>
 
                         <div class="form-group">
-                            <label for="datenschutz-link">Datenschutz-Link *</label>
-                            <input type="url" id="datenschutz-link" required placeholder="https://...">
-                            <small>https-URL zu Ihrer Datenschutzerklärung</small>
+                            <label for="datenschutz-link">Link zu Ihrer Datenschutzerklärung</label>
+                            <input type="url" id="datenschutz-link" required placeholder="https://www.beispiel.de/datenschutz">
+                            <small>Die Adresse muss mit https:// beginnen.</small>
                             <div id="link-error" class="field-error hidden"></div>
                         </div>
 
                         <div class="form-group">
-                            <label for="aufbewahrung-tage">Aufbewahrungsdauer (Tage) *</label>
+                            <label for="aufbewahrung-tage">Wie lange sollen fertige Dokumente gespeichert bleiben? (in Tagen)</label>
                             <input type="number" id="aufbewahrung-tage" min="30" max="365" required>
-                            <small>Zwischen 30 und 365 Tagen</small>
+                            <small>Danach werden sie automatisch gelöscht. Erlaubt sind 30 bis 365 Tage.</small>
                             <div id="tage-error" class="field-error hidden"></div>
                         </div>
 
                         <div class="form-group">
-                            <label>
-                                <input type="checkbox" id="mitglied-download-link">
-                                Mitgliedern Download-Link bereitstellen
-                            </label>
+                            <label class="haken"><input type="checkbox" id="mitglied-download-link"> <span>Dem Mitglied nach der Unterschrift einen Link zum Herunterladen schicken</span></label>
                         </div>
 
-                        <div id="save-error" class="error hidden"></div>
+                        <div id="save-error" class="error hidden" role="alert"></div>
                         <button type="submit" class="btn btn-primary">Speichern</button>
                     </form>
                 </section>

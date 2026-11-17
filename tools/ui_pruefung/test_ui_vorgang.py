@@ -251,6 +251,16 @@ class TestStand(unittest.TestCase):
             ("Hochgeladen", "17.11.2026, 14:05", False), ("Angaben bestätigt", "16.11.2026, 09:20", False), ("Link an das Mitglied gesendet", "16.11.2026, 09:21", False),
             ("Wartet auf die Unterschrift", "Der Link ist gültig.", True)])
 
+    def test_restlaufzeit_nur_wenn_der_server_sie_liefert(self):
+        from datetime import datetime, timedelta, timezone
+        def ab(**d):
+            return (datetime.now(timezone.utc) + timedelta(**d)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        for kw, erwartet in (({"days": 2, "hours": 12}, "Der Link ist noch 3 Tage gültig."), ({"hours": 5}, "Der Link ist noch 1 Tag gültig."), ({"hours": -1}, "Der Link läuft heute ab.")):
+            z = seite(lauf(seite=SEITE, api=stand("versendet", link_status="aktiv", link_laeuft_ab=ab(**kw)), ops=[]))["status"]["zeitstrahl"]
+            self.assertEqual(z[-1]["zeit"], erwartet, kw)
+        ohne = seite(lauf(seite=SEITE, api=stand("versendet", link_status="aktiv", link_laeuft_ab=None), ops=[]))["status"]["zeitstrahl"]
+        self.assertEqual(ohne[-1]["zeit"], "Der Link ist gültig.")
+
     def test_neuer_link_erst_nach_rueckfrage(self):
         api = stand("versendet", link_status="abgelaufen")
         o = lauf(seite=SEITE, api=api, ops=[{"op": "klick_id", "id": "btn-status-aktion", "warte": 100}, {"op": "klick_id", "id": "btn-rueckfrage-nein", "warte": 100},

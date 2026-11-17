@@ -12,6 +12,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('aufbewahrung-tage').addEventListener('input', validateTage);
 });
 
+const ALLGEMEINER_FEHLER = 'Das hat leider nicht geklappt. Bitte versuchen Sie es noch einmal.';
+const el = (id) => document.getElementById(id);
+
 async function api(method, path, body = null) {
     const opts = {
         method,
@@ -22,113 +25,93 @@ async function api(method, path, body = null) {
 
     const res = await fetch('/api/v1' + path, opts);
     if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.meldung || err.error || 'Fehler');
+        let err = {};
+        try { err = await res.json(); } catch (e) { err = {}; }
+        throw new Error(err.meldung || ALLGEMEINER_FEHLER);
     }
     return res.json();
+}
+
+function meldung(text) {
+    const box = el('seite-meldung');
+    box.textContent = text || '';
+    box.classList.toggle('hidden', !text);
 }
 
 async function loadEinstellungen() {
     try {
         const data = await api('GET', '/einstellungen');
 
-        document.getElementById('verantwortlicher').value = data.verantwortlicher || '';
-        document.getElementById('datenschutz-link').value = data.datenschutz_link || '';
-        document.getElementById('aufbewahrung-tage').value = data.aufbewahrung_tage || 90;
-        document.getElementById('mitglied-download-link').checked = data.mitglied_download_link || false;
+        el('verantwortlicher').value = data.verantwortlicher || '';
+        el('datenschutz-link').value = data.datenschutz_link || '';
+        el('aufbewahrung-tage').value = data.aufbewahrung_tage || 90;
+        el('mitglied-download-link').checked = data.mitglied_download_link || false;
 
-        document.getElementById('loading').classList.add('hidden');
-        document.getElementById('einstellungen').classList.remove('hidden');
+        el('loading').classList.add('hidden');
+        el('einstellungen').classList.remove('hidden');
     } catch (err) {
-        alert('Fehler beim Laden: ' + err.message);
+        el('loading').classList.add('hidden');
+        el('seite-fehler').textContent = 'Die Einstellungen konnten nicht geladen werden. ' + err.message;
+        el('seite-fehler').classList.remove('hidden');
     }
 }
 
 function validateVerantwortlicher() {
-    const input = document.getElementById('verantwortlicher');
-    const value = input.value.trim();
-
-    if (value.length < 5) {
-        showError('verantwortlicher-error', 'Mindestens 5 Zeichen');
-        return false;
-    }
-
-    if (value.length > 500) {
-        showError('verantwortlicher-error', 'Maximal 500 Zeichen');
-        return false;
-    }
-
-    hideError('verantwortlicher-error');
-    return true;
+    const value = el('verantwortlicher').value.trim();
+    if (value.length < 5) return fehler('verantwortlicher-error', 'Bitte tragen Sie Name, Anschrift und Kontakt Ihrer Beratungsstelle ein (mindestens 5 Zeichen).');
+    if (value.length > 500) return fehler('verantwortlicher-error', 'Bitte kürzen Sie den Text auf höchstens 500 Zeichen.');
+    return ok('verantwortlicher-error');
 }
 
 function validateLink() {
-    const input = document.getElementById('datenschutz-link');
-    const value = input.value.trim();
-
-    if (value && !value.startsWith('https://')) {
-        showError('link-error', 'Muss mit https:// beginnen');
-        return false;
-    }
-
-    hideError('link-error');
-    return true;
+    const value = el('datenschutz-link').value.trim();
+    if (!value) return fehler('link-error', 'Bitte tragen Sie den Link zu Ihrer Datenschutzerklärung ein.');
+    if (!value.startsWith('https://')) return fehler('link-error', 'Die Adresse muss mit https:// beginnen.');
+    return ok('link-error');
 }
 
 function validateTage() {
-    const input = document.getElementById('aufbewahrung-tage');
-    const error = document.getElementById('tage-error');
-    const value = parseInt(input.value);
+    const value = parseInt(el('aufbewahrung-tage').value, 10);
+    if (isNaN(value)) return fehler('tage-error', 'Bitte geben Sie eine Zahl ein.');
+    if (value < 30) return fehler('tage-error', 'Die Dokumente müssen mindestens 30 Tage gespeichert bleiben.');
+    if (value > 365) return fehler('tage-error', 'Die Dokumente dürfen höchstens 365 Tage gespeichert bleiben.');
+    return ok('tage-error');
+}
 
-    if (isNaN(value)) {
-        showError('tage-error', 'Bitte eine Zahl eingeben');
-        return false;
-    }
+function fehler(id, text) {
+    el(id).textContent = text;
+    el(id).classList.remove('hidden');
+    return false;
+}
 
-    if (value < 30) {
-        showError('tage-error', 'Mindestens 30 Tage');
-        return false;
-    }
-
-    if (value > 365) {
-        showError('tage-error', 'Maximal 365 Tage');
-        return false;
-    }
-
-    hideError('tage-error');
+function ok(id) {
+    el(id).classList.add('hidden');
     return true;
 }
 
 async function saveEinstellungen(e) {
     e.preventDefault();
+    meldung('');
+    el('save-error').classList.add('hidden');
 
-    if (!validateVerantwortlicher() || !validateLink() || !validateTage()) {
-        alert('Bitte Fehler beheben');
+    const alleOk = [validateVerantwortlicher(), validateLink(), validateTage()].every(Boolean);
+    if (!alleOk) {
+        fehler('save-error', 'Bitte korrigieren Sie die markierten Angaben.');
         return;
     }
 
-    const verantwortlicher = document.getElementById('verantwortlicher').value.trim();
-    const datenschutz_link = document.getElementById('datenschutz-link').value.trim();
-    const aufbewahrung_tage = parseInt(document.getElementById('aufbewahrung-tage').value);
-    const mitglied_download_link = document.getElementById('mitglied-download-link').checked;
+    const verantwortlicher = el('verantwortlicher').value.trim();
+    const datenschutz_link = el('datenschutz-link').value.trim();
+    const aufbewahrung_tage = parseInt(el('aufbewahrung-tage').value, 10);
+    const mitglied_download_link = el('mitglied-download-link').checked;
 
     try {
         await api('PUT', '/einstellungen', {verantwortlicher, datenschutz_link, aufbewahrung_tage, mitglied_download_link});
-        alert('Einstellungen gespeichert');
         await loadEinstellungen();
+        meldung('Die Einstellungen wurden gespeichert.');
     } catch (err) {
-        showError('save-error', err.message);
+        fehler('save-error', err.message);
     }
-}
-
-function showError(id, msg) {
-    const el = document.getElementById(id);
-    el.textContent = msg;
-    el.classList.remove('hidden');
-}
-
-function hideError(id) {
-    document.getElementById(id).classList.add('hidden');
 }
 
 // Demo: Testmail nur an eine der erlaubten Adressen (GET /demo liefert die Liste, POST /demo/testmail sendet)

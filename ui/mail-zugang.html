@@ -27,82 +27,87 @@
         <div id="hinweisleiste"></div>
 
         <main id="app">
-            <div id="loading" class="loading">Lade Mail-Zugang...</div>
+            <div id="loading" class="loading">Lade Mail-Zugang …</div>
+            <div id="seite-fehler" class="error hidden" role="alert"></div>
 
             <div id="mail-zugang" class="hidden">
+                <div class="hinweis hinweis-blau"><span class="hinweis-text"><strong>Wozu?</strong> Damit Mitglieder die E-Mail mit dem Link von <strong>Ihrer</strong> Adresse bekommen, braucht SignNext Zugang zu Ihrem E-Mail-Postfach. Das richten Sie einmal ein. Die Zugangsdaten finden Sie in den Hilfeseiten Ihres E-Mail-Anbieters unter „SMTP“.</span></div>
                 <div id="mail-hinweise" class="info-box hidden" role="status"></div>
+                <div id="seite-meldung" class="liste-meldung hidden" role="status"></div>
                 <section class="card">
-                    <h2>SMTP-Einstellungen</h2>
-                    <form id="form-mail">
+                    <h2>Zugangsdaten Ihres E-Mail-Anbieters</h2>
+                    <form id="form-mail" novalidate>
                         <div class="form-group">
-                            <label for="host">Server *</label>
-                            <input type="text" id="host" required placeholder="smtp.example.com">
-                            <small>Hostname des SMTP-Servers</small>
+                            <label for="host">Server</label>
+                            <input type="text" id="host" required autocomplete="off" placeholder="smtp.beispiel.de">
+                            <small>Steht in den Hilfeseiten Ihres Anbieters als „SMTP-Server“.</small>
                             <div id="host-error" class="field-error hidden"></div>
                         </div>
 
                         <div class="form-group">
-                            <label for="port">Port *</label>
+                            <label for="port">Port</label>
                             <select id="port" required>
                                 <option value="">Bitte wählen</option>
-                                <option value="465">465 (TLS)</option>
-                                <option value="587">587 (STARTTLS)</option>
+                                <option value="465">465 (empfohlen)</option>
+                                <option value="587">587</option>
                             </select>
+                            <small>Wenn Sie unsicher sind: 465.</small>
                             <div id="port-error" class="field-error hidden"></div>
                         </div>
 
                         <div class="form-group">
-                            <label for="benutzer">Benutzer *</label>
-                            <input type="text" id="benutzer" required>
+                            <label for="benutzer">Benutzername</label>
+                            <input type="text" id="benutzer" required autocomplete="off">
                             <div id="benutzer-error" class="field-error hidden"></div>
                         </div>
 
                         <div class="form-group">
                             <label for="passwort">Passwort</label>
-                            <input type="password" id="passwort" placeholder="Nur beim Ändern eingeben">
-                            <small>Leer lassen, um bestehendes Passwort zu behalten</small>
+                            <input type="password" id="passwort" autocomplete="new-password" placeholder="Nur beim ersten Einrichten oder zum Ändern eingeben">
+                            <small id="passwort-hinweis">Bleibt das Feld leer, wird das bisherige Passwort beibehalten.</small>
                             <div id="passwort-error" class="field-error hidden"></div>
                         </div>
 
                         <div class="form-group">
-                            <label for="absender-name">Absender-Name *</label>
+                            <label for="absender-name">Absendername</label>
                             <input type="text" id="absender-name" required placeholder="Ihre Beratungsstelle">
-                            <small>Name für ausgehende Mails</small>
+                            <small>So erscheint der Absender beim Mitglied.</small>
                             <div id="absender-name-error" class="field-error hidden"></div>
                         </div>
 
                         <div class="form-group">
-                            <label for="absender-adresse">Absender-Adresse *</label>
-                            <input type="email" id="absender-adresse" required placeholder="noreply@example.com">
-                            <small>E-Mail-Adresse für ausgehende Mails</small>
+                            <label for="absender-adresse">Absenderadresse</label>
+                            <input type="email" id="absender-adresse" required placeholder="beratung@ihre-beratungsstelle.de">
+                            <small>Von dieser Adresse bekommen die Mitglieder ihre E-Mail.</small>
                             <div id="absender-adresse-error" class="field-error hidden"></div>
                         </div>
 
                         <div class="form-group">
-                            <label for="signatur">Signaturtext</label>
+                            <label for="signatur">Signatur (Text unter der E-Mail, freiwillig)</label>
                             <textarea id="signatur" rows="4" placeholder="Ihre Beratungsstelle"></textarea>
                             <div id="signatur-error" class="field-error hidden"></div>
                         </div>
 
                         <div class="form-group">
-                            <label>
-                                <input type="checkbox" id="bcc-an-absender">
-                                Kopie an eigene Absenderadresse (BCC)
-                            </label>
-                            <small>Die Kopie enthält den Zugangslink</small>
+                            <label class="haken"><input type="checkbox" id="bcc-an-absender"> <span>Kopie jeder E-Mail an die Absenderadresse</span></label>
+                            <small>Die Kopie enthält den Zugangslink des Mitglieds.</small>
                         </div>
 
-                        <div id="save-error" class="error hidden"></div>
+                        <div id="save-error" class="error hidden" role="alert"></div>
                         <div class="knopf-zeile">
                             <button type="submit" class="btn btn-primary">Speichern</button>
                             <button type="button" id="btn-test" class="btn btn-secondary">Testmail senden</button>
-                            <button type="button" id="btn-delete" class="btn btn-secondary">Löschen</button>
+                            <button type="button" id="btn-delete" class="btn btn-gefahr-hell">Löschen …</button>
+                        </div>
+                        <div id="loeschen-rueckfrage" class="rueckfrage hidden" role="alert">
+                            <p>Den Mail-Zugang wirklich löschen? Danach können keine E-Mails mehr an Mitglieder gesendet werden, bis Sie ihn neu einrichten.</p>
+                            <div class="knopf-zeile"><button type="button" id="btn-loeschen-ja" class="btn btn-klein btn-gefahr">Ja, löschen</button><button type="button" id="btn-loeschen-nein" class="btn btn-klein btn-secondary">Abbrechen</button></div>
                         </div>
                     </form>
                 </section>
 
-                <section class="card hidden" id="test-result">
-                    <h2>Testergebnis</h2>
+                <section class="card hidden" id="test-result" aria-live="polite">
+                    <h2>Ergebnis der Testmail</h2>
                     <div id="test-output"></div>
                 </section>
             </div>

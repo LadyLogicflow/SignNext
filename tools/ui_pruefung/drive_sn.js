@@ -142,7 +142,17 @@ function api(req, res, pfad, body) {
         if (cfg.testmailFehler) return fehler(cfg.testmailFehler.status, cfg.testmailFehler.error, cfg.testmailFehler.meldung);
         return senden(res, 200, {ergebnis: 'gesendet'});
     }
-    if (cfg.hinweisFehler && (pfad === '/api/v1/einstellungen' || (pfad === '/api/v1/mail-zugang' && m === 'GET'))) return fehler(500, 'intern', 'kaputt');
+    if (pfad === '/api/v1/einstellungen' && m === 'PUT') { const a = cfg.einstellungenPut || {status: 200, body: {ok: true}}; return senden(res, a.status, a.body); }
+    if (pfad === '/api/v1/mail-zugang' && m === 'DELETE') {
+        const a = cfg.mailDelete || {status: 204};
+        if (a.status === 204) { res.writeHead(204); return res.end(); }
+        return senden(res, a.status, a.body);
+    }
+    if (pfad === '/api/v1/mail-zugang/pruefen' && m === 'POST') {
+        const a = cfg.mailPruefen || {status: 200, body: {ok: true, verbindung: {tls_version: 'TLSv1.3', cipher: 'TLS_AES_256_GCM_SHA384', zertifikat_gueltig_bis: '2027-01-01', aussteller: 'Beispiel CA'}}};
+        return senden(res, a.status, a.body);
+    }
+    if (cfg.hinweisFehler && (pfad === '/api/v1/einstellungen' || (pfad === '/api/v1/mail-zugang' && m === 'GET'))) return senden(res, 500, {x: 1});
     if (pfad === '/api/v1/einstellungen' && cfg.einstellungen) return senden(res, 200, cfg.einstellungen);
     if (pfad === '/api/v1/einstellungen') return senden(res, 200, {gesetzt: true, verantwortlicher: 'Beratungsstelle Beispiel, Musterstr. 1', datenschutz_link: 'https://beispiel.example/datenschutz', aufbewahrung_tage: 90, mitglied_download_link: false});
     if (pfad === '/api/v1/mail-zugang' && m === 'GET') return senden(res, 200, cfg.mailZugang);
@@ -296,6 +306,18 @@ async function main() {
             angemeldet: sichtbar('angemeldet') ? text('angemeldet') : null,
             portal_link: sichtbar('portal-link') ? doc.getElementById('portal-link').getAttribute('href') : null,
             menue, hinweise,
+            formular: doc.getElementById('seite-meldung') ? (() => {
+                const t = (id) => { const e = doc.getElementById(id); return e && !e.classList.contains('hidden') ? e.textContent.replace(/\s+/g, ' ').trim() : null; };
+                const werte = {};
+                ['host', 'port', 'benutzer', 'passwort', 'absender-name', 'absender-adresse', 'signatur', 'verantwortlicher', 'datenschutz-link', 'aufbewahrung-tage'].forEach(id => { const e = doc.getElementById(id); if (e) werte[id] = e.value; });
+                const fehler = {};
+                doc.querySelectorAll('.field-error, .error').forEach(e => { if (e.id && !e.classList.contains('hidden') && e.textContent.trim()) fehler[e.id] = e.textContent.replace(/\s+/g, ' ').trim(); });
+                const test = doc.getElementById('test-result');
+                return {meldung: t('seite-meldung'), seite_fehler: t('seite-fehler'), fehler, werte, bcc: doc.getElementById('bcc-an-absender') ? doc.getElementById('bcc-an-absender').checked : null,
+                    download: doc.getElementById('mitglied-download-link') ? doc.getElementById('mitglied-download-link').checked : null, passwort_hinweis: t('passwort-hinweis'),
+                    rueckfrage: doc.getElementById('loeschen-rueckfrage') && !doc.getElementById('loeschen-rueckfrage').classList.contains('hidden'),
+                    test: test && !test.classList.contains('hidden') ? {text: [...doc.querySelectorAll('#test-output > p')].map(p => p.textContent.replace(/\s+/g, ' ').trim()), technik: [...doc.querySelectorAll('#test-output dt')].map(dt => dt.textContent + '=' + dt.nextSibling.textContent), erfolg: !!doc.querySelector('#test-output .success-text')} : null};
+            })() : null,
             vorgang: doc.getElementById('schrittleiste') ? (() => {
                 const t = (id) => { const e = doc.getElementById(id); return e && !e.classList.contains('hidden') ? e.textContent.replace(/\s+/g, ' ').trim() : null; };
                 const offen = (id) => { const e = doc.getElementById(id); return !!e && !e.classList.contains('hidden'); };

@@ -143,6 +143,8 @@ function zeigePruefen() {
     panel('pruefen', 'Angaben prüfen', 2);
     const d = pruefdaten;
     el('pdf-viewer').src = `/api/v1/vorgaenge/${vorgangId}/dokument`;
+    el('dokument-neues-fenster').href = `/api/v1/vorgaenge/${vorgangId}/dokument`;
+    el('dokument-datei').href = `/api/v1/vorgaenge/${vorgangId}/dokument`;
     el('name-wert').textContent = d.name && d.name.wert ? d.name.wert : 'Der Name konnte nicht gelesen werden.';
     el('name-hinweis').textContent = `Vorgang: ${name()}`;
     el('personen').value = d.personen && d.personen.wert ? String(d.personen.wert) : '';
@@ -333,6 +335,15 @@ function zeigeStatus() {
     zeigeFehler('status-fehler', '');
 }
 
+// "noch N Tage", sobald der Server die Ablaufzeit mitliefert; sonst nur "gültig" (nichts raten)
+function linkGueltig() {
+    const ab = vorgang.link_laeuft_ab ? new Date(vorgang.link_laeuft_ab).getTime() : NaN;
+    if (isNaN(ab)) return 'Der Link ist gültig.';
+    const tage = Math.ceil((ab - Date.now()) / (24 * 60 * 60 * 1000));
+    if (tage > 1) return `Der Link ist noch ${tage} Tage gültig.`;
+    return tage === 1 ? 'Der Link ist noch 1 Tag gültig.' : 'Der Link läuft heute ab.';
+}
+
 function zeichneZeitstrahl() {
     const liste = el('zeitstrahl');
     liste.textContent = '';
@@ -356,7 +367,7 @@ function zeichneZeitstrahl() {
     if (vorgang.abgeschlossen_am) punkt('Fertiggestellt', datumUhr(vorgang.abgeschlossen_am));
     const s = vorgang.status;
     const l = vorgang.link_status;
-    if (s === 'versendet') punkt('Wartet auf die Unterschrift', l === 'aktiv' ? 'Der Link ist gültig.' : (l === 'abgelaufen' ? 'Der Link ist abgelaufen.' : (l === 'gesperrt' ? 'Der Link ist gesperrt.' : '')), true);
+    if (s === 'versendet') punkt('Wartet auf die Unterschrift', l === 'aktiv' ? linkGueltig() : (l === 'abgelaufen' ? 'Der Link ist abgelaufen.' : (l === 'gesperrt' ? 'Der Link ist gesperrt.' : '')), true);
     else if (s === 'versand_unklar') punkt('Versand unklar', 'Bitte im Postfach nachsehen.', true);
     else if (s === 'unterschrieben' || s === 'abschluss_laeuft') punkt('Wird fertiggestellt', '', true);
     else if (s === 'abschluss_fehlgeschlagen') punkt('Fertigstellung hakt', 'Das System versucht es erneut.', true);

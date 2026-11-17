@@ -320,6 +320,7 @@ body.berater .upload-auswahl {
 }
 
 body.berater .upload-regeln {
+    margin-bottom: 8px;
     margin-top: 10px;
     font-size: 13px;
     color: var(--ink-soft);
@@ -767,9 +768,15 @@ body.berater .knopf-zeile {
     body.berater .container { padding: 18px 12px 64px; }
     body.berater h1 { font-size: 26px; }
     body.berater .menue a { flex: 1 1 auto; justify-content: center; }
-    body.berater .karten-raster,
     body.berater .schritte-kurz,
     body.berater .raster.zwei { grid-template-columns: 1fr; }
+    /* Die drei Karten bleiben nebeneinander und werden kompakt, damit die Liste nicht nach unten rutscht */
+    body.berater .karten-raster { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    body.berater .karte-zahl { padding: 10px 10px; }
+    body.berater .karte-zahl[aria-pressed="true"] { padding: 9px 9px; }
+    body.berater .karte-titel { font-size: 13px; }
+    body.berater .karte-wert { font-size: 26px; }
+    body.berater .karte-unter { display: none; }
     body.berater .schritte li { min-width: 46%; }
     body.berater .pdf-vorschau { height: 360px; }
     body.berater .zeile { grid-template-columns: 1fr; gap: 6px; }
