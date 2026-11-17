@@ -22,10 +22,10 @@ from portal_auth import anmeldung_pflicht, audit
 bp = Blueprint("demo_api", __name__, url_prefix="/api/v1/demo")
 
 BEISPIELE = {
-    "anschreiben": ("Anschreiben-B-Demo.pdf", lambda: demo_daten.b_pdf(personen=2)),
-    "anschreiben-einzel": ("Anschreiben-B-Demo-Einzelperson.pdf", lambda: demo_daten.b_pdf(personen=1)),
-    "protokoll-ehepaar": ("Steuerprotokoll-A-Demo-Ehepaar.pdf", lambda: demo_daten.a_pdf(ehegatte=True)),
-    "protokoll-einzel": ("Steuerprotokoll-A-Demo-Einzelperson.pdf", lambda: demo_daten.a_pdf(ehegatte=False)),
+    "anschreiben": ("Anschreiben-B-Beispiel.pdf", lambda: demo_daten.b_pdf(personen=2)),
+    "anschreiben-einzel": ("Anschreiben-B-Beispiel-Einzelperson.pdf", lambda: demo_daten.b_pdf(personen=1)),
+    "protokoll-ehepaar": ("Steuerprotokoll-A-Beispiel-Ehepaar.pdf", lambda: demo_daten.a_pdf(ehegatte=True)),
+    "protokoll-einzel": ("Steuerprotokoll-A-Beispiel-Einzelperson.pdf", lambda: demo_daten.a_pdf(ehegatte=False)),
 }
 
 
@@ -54,7 +54,7 @@ def vorgang_anlegen():
     try:
         v = demo.vorgang_erzeugen(g.nutzer["mandant_ref"])
     except demo.DemoFehler as f:
-        return jsonify({"error": str(f), "meldung": "Der Demo-Vorgang konnte nicht angelegt werden."}), 409
+        return jsonify({"error": str(f), "meldung": "Der Vorgang konnte nicht angelegt werden."}), 409
     audit("demo_vorgang_angelegt", "id=%d" % v["vorgang_id"])
     v["qr_svg"] = qr.svg(v["link"])
     return jsonify(v)
@@ -80,7 +80,7 @@ def testmail():
         return jsonify({"error": "eingabe_ungueltig", "meldung": "Bitte {an: Adresse} senden."}), 400
     an = daten["an"].strip().lower()
     if an not in config.versand_testadressen():
-        return jsonify({"error": "adresse_nicht_erlaubt", "meldung": "Diese Adresse steht nicht in der Liste der erlaubten Testadressen."}), 400
+        return jsonify({"error": "adresse_nicht_erlaubt", "meldung": "Diese Adresse ist nicht freigegeben."}), 400
     try:
         z = mail_zugang.fuer_dienst(g.nutzer["mandant_ref"], "demo_testmail", g.nutzer["email"])
     except schluessel.HauptschluesselFehlt:
@@ -89,8 +89,8 @@ def testmail():
         return jsonify({"error": "mail_zugang_nicht_lesbar", "meldung": "Der Mail-Zugang ist nicht lesbar. Bitte neu eintragen."}), 503
     if z is None:
         return jsonify({"error": "mail_zugang_fehlt", "meldung": "Bitte zuerst den Mail-Zugang eintragen."}), 409
-    nachricht = mailer.nachricht_bauen(z["absender_adresse"], z["absender_name"], an, "SignNext Demo: Testmail",
-                                       "Guten Tag,\n\ndas ist eine Testmail der SignNext-Demo (erfundene Daten). Sie müssen nichts weiter tun.\n")
+    nachricht = mailer.nachricht_bauen(z["absender_adresse"], z["absender_name"], an, "SignNext: Testmail",
+                                       "Guten Tag,\n\ndas ist eine Testmail von SignNext. Sie müssen nichts weiter tun.\n")
     info: dict = {}
     try:
         mailer.senden(z, [an], nachricht, info)

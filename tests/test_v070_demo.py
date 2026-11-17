@@ -1,4 +1,6 @@
 """v0.7.0 Demo-Modus mit echtem Mailversand: Demo-Endpunkte, Pflichtabgleich Mail-Zugang, Versand mit Link/QR, Fallback ohne Mail, Testmail, Allowlist. Nur erfundene Daten."""
+import email
+import email.header
 import os
 import re
 import unittest
@@ -75,6 +77,20 @@ class TestDemoEndpunkte(DemoMail):
         self.assertEqual(len(self.srv.nachrichten), 1)                                                       # nichts an Fremde
         for schlecht in ({}, {"an": 5}, {"an": EXTERN, "x": 1}):
             self.assertEqual(self.c.post("/api/v1/demo/testmail", json=schlecht).status_code, 400)
+
+    def test_wortlaut_ohne_testversion_anschein(self):
+        """catrin 17.11.: nichts, was nach Testversion klingt, in Texten, die Beratungsstelle oder Mitglied sehen (Sperre bleibt, Wortlaut neutral)."""
+        r = self.c.post("/api/v1/demo/testmail", json={"an": "fremd@example.org"})
+        self.assertEqual((r.status_code, r.get_json()["meldung"]), (400, "Diese Adresse ist nicht freigegeben."))
+        self.assertEqual(self.c.post("/api/v1/demo/testmail", json={"an": EXTERN}).status_code, 200)
+        m, text = self.mail_text(self.srv.nachrichten[-1])
+        self.assertEqual(str(email.header.make_header(email.header.decode_header(m["Subject"]))), "SignNext: Testmail")
+        for verboten in ("Demo", "erfundene"):
+            self.assertNotIn(verboten, text)
+        for n in ("anschreiben", "anschreiben-einzel", "protokoll-ehepaar", "protokoll-einzel"):
+            self.assertNotIn("Demo", self.c.get("/api/v1/demo/beispiel/" + n).headers["Content-Disposition"], n)
+        import api
+        self.assertEqual(api.MELDUNGEN["empfaenger_nicht_freigegeben"], "Diese Adresse ist nicht freigegeben.")
 
     def test_testmail_mit_serverfehler_meldet_den_code(self):
         self.srv.mail_ablehnen = True

@@ -120,7 +120,7 @@ MELDUNGEN = {
     "mail_tls_fehler": "Die verschlüsselte Verbindung zum Mailserver ist fehlgeschlagen.",
     "versand_gesperrt": "Der Versand ist derzeit nicht freigeschaltet.",
     "mail_zugang_ungeprueft": "Bitte zuerst den Mail-Zugang prüfen (Testmail).",
-    "empfaenger_nicht_freigegeben": "Im Testbetrieb darf nur an freigegebene Testadressen versendet werden.",
+    "empfaenger_nicht_freigegeben": "Diese Adresse ist nicht freigegeben.",
     "mail_verbindung": "Der Mailserver ist nicht erreichbar.",
     "mail_anmeldung": "Die Anmeldung am Mailserver wurde abgelehnt. Bitte Zugangsdaten prüfen.",
     "mail_absender_abgelehnt": "Der Mailserver hat die Absenderadresse abgelehnt.",
