@@ -45,6 +45,7 @@ class TestZeichenfeld(unittest.TestCase):
         self.assertEqual(gezeichnet["zeichnung"]["stil"], {"breite": 3, "farbe": "#0b2545", "cap": "round", "join": "round"})
         self.assertGreaterEqual(gezeichnet["zeichnung"]["capture"], 1)                          # Pointer Events mit Capture
         self.assertIsNone(gezeichnet["fehler_unterschrift"])
+        self.assertTrue(feld["fehlt_platz"] and gezeichnet["fehlt_platz"])                      # Hinweis nimmt auch ungezeigt Platz ein: kein Sprung unter dem Finger
         geleert = o["schritte"][7]["zustand"]
         self.assertEqual(geleert["fehlt"], "Bitte hier unterschreiben.")                        # löschen: Hinweis wieder da
         self.assertGreaterEqual(geleert["zeichnung"]["geleert"], 1)
@@ -143,6 +144,15 @@ class TestHandyUebergabe(unittest.TestCase):
         self.assertTrue(z["knoepfe"]["handy_neu"]["sichtbar"])
         neu = o["schritte"][4]
         self.assertEqual([r["p"] for r in neu["zustand"]["requests"] if r["m"] == "POST" and r["p"].endswith("/handoff")], ["/api/v1/zugang/handoff"])
+
+    def test_ohne_lesbaren_servertext_steht_ein_verstaendlicher_satz(self):
+        ohne = lauf(seite="/u", fragment="#tok", api={"handoffStartFehler": {"status": 404}}, ops=bis_zum_feld({"op": "handy", "warte": 300}))
+        z = ohne["schritte"][3]["zustand"]
+        self.assertEqual(z["meldung"], "Die Übergabe ans Handy ist gerade nicht möglich. Bitte unterschreiben Sie hier im Feld.")
+        self.assertTrue(z["zeichenfeld_sichtbar"])                                              # hier im Feld unterschreiben geht weiter
+        self.assertFalse(z["handy_box"])
+        server = lauf(seite="/u", fragment="#tok", api={"handoffStartFehler": {"status": 500}}, ops=bis_zum_feld({"op": "handy", "warte": 300}))
+        self.assertEqual(server["schritte"][3]["zustand"]["meldung"], "Das hat leider nicht geklappt. Bitte versuchen Sie es noch einmal.")   # nie nur das Wort "Fehler"
 
     def test_fehler_vom_server_stehen_im_text(self):
         start = lauf(seite="/u", fragment="#tok", api={"handoffStartFehler": {"status": 409, "error": "schritt_falsch", "meldung": "Das geht nur im Schritt Unterschreiben."}},

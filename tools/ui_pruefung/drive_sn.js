@@ -251,7 +251,8 @@ async function main() {
             label: text('zeichenfeld-label'),
             hinweis_oben: text('unterschrift-hinweis'),
             hilfe: doc.querySelector('.zeichenfeld-hilfe') ? doc.querySelector('.zeichenfeld-hilfe').textContent.trim() : null,
-            fehlt: sichtbar('zeichenfeld-fehlt') ? text('zeichenfeld-fehlt') : null,
+            fehlt: sichtbar('zeichenfeld-fehlt') && !doc.getElementById('zeichenfeld-fehlt').classList.contains('unsichtbar') ? text('zeichenfeld-fehlt') : null,
+            fehlt_platz: sichtbar('zeichenfeld-fehlt'),                       // Element nimmt weiter Platz ein (kein display:none)
             fehler_unterschrift: sichtbar('unterschrift-error') ? text('unterschrift-error') : null,
             fehler_code: sichtbar('code-error') ? text('code-error') : null,
             zeichenfeld_sichtbar: sichtbar('zeichenfeld'),

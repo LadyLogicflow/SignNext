@@ -3,6 +3,8 @@
 
 const API = '/api/v1/zugang';
 const HANDY_ABFRAGE_MS = 2000;
+const ALLGEMEINER_FEHLER = 'Das hat leider nicht geklappt. Bitte versuchen Sie es noch einmal.';
+const HANDY_NICHT_MOEGLICH = 'Die Übergabe ans Handy ist gerade nicht möglich. Bitte unterschreiben Sie hier im Feld.';
 let token = null;
 let textHash = null;
 let currentPerson = 1;
@@ -73,7 +75,7 @@ async function api(method, path, body = null) {
             e.sitzung = true;
             throw e;
         }
-        throw new ApiFehler(data.meldung || data.error || 'Fehler', res.status, data.error, data);
+        throw new ApiFehler(data.meldung || data.error || ALLGEMEINER_FEHLER, res.status, data.error, data);
     }
     return data;
 }
@@ -294,7 +296,9 @@ async function handyStarten() {
         document.getElementById('handy-rest').textContent = restZeit(r.sekunden);
         handoff.timer = setTimeout(handyAbfragen, HANDY_ABFRAGE_MS);
     } catch (err) {
-        if (!err.sitzung) zeigeMeldung(err.message);
+        // Gibt es die Übergabe nicht (oder liefert der Server keinen lesbaren Text), bleibt das Zeichenfeld nutzbar und der Satz sagt das
+        const fehlt = [404, 405, 501].includes(err.status) && (!err.code || err.message === err.code);
+        if (!err.sitzung) zeigeMeldung(fehlt ? HANDY_NICHT_MOEGLICH : err.message);
     }
 }
 

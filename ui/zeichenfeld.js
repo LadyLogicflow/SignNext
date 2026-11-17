@@ -22,7 +22,7 @@
         let gesperrt = false;
 
         const melden = () => {
-            if (fehlt) fehlt.classList.toggle('hidden', inhalt);
+            if (fehlt) fehlt.classList.toggle('unsichtbar', inhalt);                // Platz bleibt erhalten, sonst springt das Feld beim ersten Strich unter dem Finger
             if (typeof o.onAenderung === 'function') o.onAenderung(inhalt);
         };
 

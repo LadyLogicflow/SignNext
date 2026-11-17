@@ -3,6 +3,7 @@
 'use strict';
 
 const API = '/api/v1/handy';
+const ALLGEMEINER_FEHLER = 'Das hat leider nicht geklappt. Bitte versuchen Sie es noch einmal.';
 const LINK_UNGUELTIG = 'Dieser Link gilt nicht mehr. Bitte am Computer einen neuen QR-Code anzeigen.';
 let token = null;
 let zeichenfeld = null;
@@ -52,7 +53,7 @@ async function api(pfad, body) {
         data = {};
     }
     if (!res.ok) {
-        throw Object.assign(new Error(data.meldung || data.error || 'Fehler'), {status: res.status, code: data.error});
+        throw Object.assign(new Error(data.meldung || data.error || ALLGEMEINER_FEHLER), {status: res.status, code: data.error});
     }
     return data;
 }

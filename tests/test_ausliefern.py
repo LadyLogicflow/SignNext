@@ -159,6 +159,28 @@ class TestSchutzwaechterUI(unittest.TestCase):
                     self.assertNotRegex(zeile, r"\$\{[^}]*(verantwortlicher|name|mail|email|text|meldung|err\.|message)", "%s:%d" % (datei.name, nr))
 
 
+class TestTippflaechen(unittest.TestCase):
+    """Auf dem Handy müssen Knöpfe und Textknöpfe mindestens 44 px hoch sein (Touch-Probe 17.11.2026)."""
+
+    def test_mindestgroesse_44px(self):
+        import re
+        css = (Path(__file__).resolve().parent.parent / "ui" / "style.css").read_text(encoding="utf-8")
+
+        def regel(selektor):
+            m = re.search(re.escape(selektor) + r"\s*\{([^}]*)\}", css)
+            self.assertIsNotNone(m, selektor)
+            return m.group(1)
+        for sel in (".zeichenfeld-leeren, .link-knopf", ".btn"):
+            self.assertRegex(regel(sel), r"min-height:\s*44px", sel)
+        self.assertRegex(regel(".zeichenfeld-leeren, .link-knopf"), r"min-width:\s*44px")
+
+    def test_hinweis_unter_dem_zeichenfeld_behaelt_seinen_platz(self):
+        css = (Path(__file__).resolve().parent.parent / "ui" / "style.css").read_text(encoding="utf-8")
+        js = (Path(__file__).resolve().parent.parent / "ui" / "zeichenfeld.js").read_text(encoding="utf-8")
+        self.assertIn("visibility: hidden", css.split(".zeichenfeld-fehlt.unsichtbar", 1)[1].split("}", 1)[0])
+        self.assertNotIn("fehlt.classList.toggle('hidden'", js)                                   # display:none würde das Feld unter dem Finger springen lassen
+
+
 class TestHandyHinweis(Basis):
     """Hinweis auf der Unterschriftsseite (catrin #19322): am Computer mit der Maus, am Smartphone oder Tablet mit dem Finger. Eigenes Element in der Seite, NICHT in texte/
     (dort hängen Kennung und Hash der Irony-Texte dran)."""
