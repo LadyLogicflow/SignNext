@@ -1,9 +1,8 @@
-// SignNext Berater-Seiten, gemeinsam: Rahmen (Wortmarke, Angemeldet-als, Hinweisleiste), Demo-Banner, Sperrseite außerhalb des Heimnetzes, Link-Anzeige mit Kopieren-Knopf und QR - CSP 'self' konform
+// SignNext Berater-Seiten, gemeinsam: Rahmen (Wortmarke, Angemeldet-als, Hinweisleiste), Sperrseite außerhalb des Heimnetzes, Link-Anzeige mit Kopieren-Knopf und QR - CSP 'self' konform
 // Wird vor dem Seitenskript eingebunden. Jede Seite wartet mit `await Berater.bereit()`; false heißt: die Seite ist gesperrt, nichts weiter laden.
 'use strict';
 
 (function () {
-    const STANDARD_BANNER = 'DEMO – Testdaten, keine echten Personendaten';
     const NUR_HEIMNETZ = 'Diese Demo ist nur im Heimnetz erreichbar.';
     let meAntwort = null;
 
@@ -19,22 +18,6 @@
             return {status: res.status, data};
         } catch (err) {
             return {status: 0, data: {}};
-        }
-    }
-
-    function bannerZeigen(text) {
-        if (document.getElementById('demo-banner')) return;
-        const banner = document.createElement('div');
-        banner.id = 'demo-banner';
-        banner.className = 'demo-banner';
-        banner.setAttribute('role', 'status');
-        banner.textContent = text;
-        const leiste = document.getElementById('hinweisleiste');
-        if (leiste) {
-            leiste.insertBefore(banner, leiste.firstChild);
-        } else {
-            const container = document.querySelector('.container');
-            container.insertBefore(banner, container.firstChild);
         }
     }
 
@@ -144,7 +127,6 @@
             return false;
         }
         rahmenFuellen(status === 200 ? data : {});
-        if (status === 200 && data && data.demo === true) bannerZeigen(data.demo_banner || STANDARD_BANNER);
         await hinweiseLaden();
         return true;
     }

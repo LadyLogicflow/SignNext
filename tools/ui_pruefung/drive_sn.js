@@ -372,6 +372,7 @@ async function main() {
             banner_in_leiste: !!doc.querySelector('#hinweisleiste #demo-banner'),
             ueberschrift: doc.querySelector('h1') ? doc.querySelector('h1').textContent : null,
             banner: banner ? banner.textContent : null,
+            testdaten_im_text: /Testdaten/.test(doc.body.textContent),
             banner_rolle: banner ? banner.getAttribute('role') : null,
             nur_heimnetz: doc.getElementById('nur-heimnetz') ? doc.getElementById('nur-heimnetz').textContent : null,
             demo_bereich: sichtbar('demo-bereich'),

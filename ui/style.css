@@ -383,16 +383,6 @@ dd {
 }
 
 /* Demo-Modus (Berater-Seiten) */
-.demo-banner {
-    margin-bottom: 1rem;
-    padding: 0.5rem 1rem;
-    background: #fef3c7;
-    border: 1px solid var(--color-warning);
-    border-radius: 4px;
-    font-weight: 700;
-    text-align: center;
-    color: #78350f;
-}
 
 .link-zeile {
     display: flex;

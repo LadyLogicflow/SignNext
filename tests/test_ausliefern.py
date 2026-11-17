@@ -221,6 +221,12 @@ class TestBeraterRahmenStatik(unittest.TestCase):
         self.assertIsNotNone(regel)
         self.assertRegex(regel.group(1), r"overflow-wrap:\s*anywhere")                                  # Vorgangsname ohne Leerzeichen in der Überschrift (Chromium-Probe, Handy)
 
+    def test_der_testdaten_balken_steht_nirgends_mehr_im_code(self):
+        for datei in [d for d in UI.glob("*") if d.is_file()]:
+            text = datei.read_text(encoding="utf-8")
+            self.assertNotIn("demo-banner", text, datei.name)
+            self.assertNotIn("keine echten Personendaten", text, datei.name)
+
     def test_karten_bleiben_am_handy_nebeneinander(self):
         css = (UI / "berater.css").read_text(encoding="utf-8")
         schmal = css.split("@media (max-width: 700px)", 1)[1]

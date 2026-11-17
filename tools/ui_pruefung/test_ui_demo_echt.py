@@ -42,10 +42,10 @@ class TestBeraterGegenEchtesBackend(DemoMail):
     def lauf(self, seite, ops):
         return lauf(basis=self.basis, kopf={"X-Forwarded-For": "127.0.0.1"}, seite=seite, ops=ops)
 
-    def test_vorgangsliste_banner_beispiele_und_demo_vorgang(self):
+    def test_vorgangsliste_beispiele_und_demo_vorgang(self):
         o = self.lauf("/vorgaenge", [{"op": "klick_id", "id": "btn-demo-vorgang", "warte": 3000}])
         b = o["start"]["berater"]
-        self.assertEqual(b["banner"], "DEMO – Testdaten, keine echten Personendaten")
+        self.assertIsNone(b["banner"])                                                              # der Server meldet Demo, die Seite zeigt keinen Balken mehr
         self.assertTrue(b["demo_bereich"])
         self.assertEqual([a["href"] for a in b["pdf_links"]], ["/api/v1/demo/beispiel/" + n for n in ("anschreiben", "anschreiben-einzel", "protokoll-ehepaar", "protokoll-einzel")])
         neu = o["schritte"][0]["zustand"]["berater"]

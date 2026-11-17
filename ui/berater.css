@@ -181,10 +181,6 @@ body.berater .hinweis-blau {
     color: var(--navy-900);
 }
 
-body.berater .demo-banner {
-    margin: 0 0 14px;
-}
-
 /* Karten und Knöpfe */
 body.berater .card {
     padding: 20px;

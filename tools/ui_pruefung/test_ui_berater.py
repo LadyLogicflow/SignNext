@@ -17,15 +17,14 @@ def api_aufrufe(zustand):
 
 @unittest.skipUnless(BEREIT, HINWEIS)
 class TestDemoRahmen(unittest.TestCase):
-    def test_banner_auf_jeder_berater_seite_nur_im_demo(self):
-        for seite in SEITEN:
-            demo = lauf(seite=seite, api={"me": DEMO}, ops=[])
-            self.assertEqual(demo["start"]["berater"]["banner"], "DEMO – Testdaten, keine echten Personendaten", seite)
-            self.assertEqual(demo["start"]["berater"]["banner_rolle"], "status", seite)
-            normal = lauf(seite=seite, ops=[])
-            self.assertIsNone(normal["start"]["berater"]["banner"], seite)                     # Produktion: kein Banner
-        ohne_text = lauf(seite="/vorgaenge", api={"me": {"status": 200, "body": {"demo": True}}}, ops=[])
-        self.assertEqual(ohne_text["start"]["berater"]["banner"], "DEMO – Testdaten, keine echten Personendaten")           # Standardtext, falls der Server keinen liefert
+    def test_kein_testdaten_balken_auf_keiner_seite(self):
+        # catrin 17.11.2026: der Balken "DEMO - Testdaten ..." entfällt, auch wenn der Server den Demo-Marker und den Text weiter mitschickt
+        for seite in SEITEN + ["/u"]:
+            for api in ({"me": DEMO}, {}, {"me": {"status": 200, "body": {"demo": True}}}):
+                b = lauf(seite=seite, fragment="#tok" if seite == "/u" else "", api=api, ops=[])["start"]["berater"]
+                self.assertIsNone(b["banner"], (seite, api))
+                self.assertFalse(b["banner_in_leiste"], (seite, api))
+                self.assertFalse(b["testdaten_im_text"], (seite, api))                                 # auch nirgends sonst im Seitentext
 
     def test_nicht_erlaubte_demo_zeigt_eigene_seite_und_laedt_nichts(self):
         sperre = {"status": 403, "body": {"error": "forbidden", "grund": "demo_nicht_erlaubt"}}
@@ -180,7 +179,7 @@ class TestRahmen(unittest.TestCase):
         self.assertEqual(html["angemeldet"], "Angemeldet als: <b>x</b>@example.org")           # als Text, nicht als Markup
         demo = lauf(seite="/vorgaenge", api={"me": DEMO}, ops=[])["start"]["berater"]
         self.assertEqual(demo["angemeldet"], "Angemeldet als: Demo-Beratungsstelle")
-        self.assertTrue(demo["banner_in_leiste"])                                              # Demo-Banner steht in der Hinweisleiste
+        self.assertIsNone(demo["banner"])                                                      # kein Demo-Balken mehr (catrin 17.11.)
 
     def test_hinweisleiste_nur_wenn_etwas_fehlt(self):
         ok = lauf(seite="/vorgaenge", ops=[])["start"]["berater"]["hinweise"]
