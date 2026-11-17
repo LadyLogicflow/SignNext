@@ -48,6 +48,9 @@ def create_app(db_pfad: str | None = None) -> Flask:
         verz = config.daten_verzeichnis()
         verz.mkdir(parents=True, exist_ok=True)
         db_pfad = str(verz / "signnext.db")
+    fehler = config.demo_offen_fehler()
+    if fehler:
+        raise RuntimeError("SIGNNEXT_DEMO_ANMELDUNG=offen abgelehnt: " + fehler)       # fail closed: lieber kein Start als eine offene Beraterseite
     db.init(db_pfad)
     app.register_blueprint(api.bp)
     app.register_blueprint(zugang.bp)

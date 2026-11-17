@@ -49,6 +49,65 @@ def basis_url() -> str | None:
     return wert if wert.startswith("https://") and len(wert) > 10 else None
 
 
+def demo_aktiv() -> bool:
+    """Demo-Modus (nur Testinstanzen; nie in der Produktion setzen): SIGNNEXT_DEMO=1."""
+    return os.environ.get("SIGNNEXT_DEMO", "") == "1"
+
+
+def demo_anmeldung_gewuenscht() -> bool:
+    """SIGNNEXT_DEMO_ANMELDUNG=offen: Beraterseiten ohne Portal-Login (feste Demo-Beratungsstelle), nur unter den Bedingungen von ``demo_offen_fehler``."""
+    return os.environ.get("SIGNNEXT_DEMO_ANMELDUNG", "") == "offen"
+
+
+def demo_hosts() -> set:
+    """Namen, unter denen die Demo erreichbar sein darf (Host-Kopf): Host der Basis-Adresse, SIGNNEXT_DEMO_HOSTS (Komma-Liste) und localhost. Schützt vor DNS-Rebinding."""
+    import ipaddress
+    from urllib.parse import urlsplit
+    hosts = {"localhost", "127.0.0.1", "[::1]", "::1"}
+    basis = basis_url()
+    if basis:
+        hosts.add((urlsplit(basis).hostname or "").lower())
+    for h in os.environ.get("SIGNNEXT_DEMO_HOSTS", "").split(","):
+        h = h.strip().lower()
+        if h:
+            hosts.add(h)
+    return {h for h in hosts if h}
+
+
+def demo_netze() -> list:
+    """Quellnetze, aus denen die Demo bedient wird: private LAN-Netze, Tailscale und Loopback. Bewusst NICHT 172.16.0.0/12 (das ist das Docker-Netz: dort sähe jeder Besucher
+    wie ein Nachbar aus); wer ein LAN in 172.16/12 hat, trägt es in SIGNNEXT_DEMO_NETZE (Komma-Liste, CIDR) ein."""
+    import ipaddress
+    netze = ["127.0.0.0/8", "::1/128", "10.0.0.0/8", "192.168.0.0/16", "100.64.0.0/10", "fc00::/7", "fd7a:115c:a1e0::/48"]
+    netze += [n.strip() for n in os.environ.get("SIGNNEXT_DEMO_NETZE", "").split(",") if n.strip()]
+    ergebnis = []
+    for n in netze:
+        try:
+            ergebnis.append(ipaddress.ip_network(n, strict=False))
+        except ValueError:
+            continue
+    return ergebnis
+
+
+def demo_offen_fehler() -> str | None:
+    """None = der Offen-Modus darf laufen (oder ist nicht gewünscht). Sonst der Grund, warum die Einstellung abgelehnt wird (Start bricht ab, fail closed)."""
+    if not demo_anmeldung_gewuenscht():
+        return None
+    if not demo_aktiv():
+        return "SIGNNEXT_DEMO=1 fehlt"
+    if versand_modus() == "an":
+        return "SIGNNEXT_VERSAND=an ist mit dem Offen-Modus nicht erlaubt (nur aus oder testadressen)"
+    if proxy_anzahl() != 1:
+        return "SIGNNEXT_PROXIES muss 1 sein (der Offen-Modus vertraut genau dem Caddy-Vorsatz)"
+    if basis_url() is None and not os.environ.get("SIGNNEXT_DEMO_HOSTS", "").strip():
+        return "SIGNNEXT_BASIS_URL (https) oder SIGNNEXT_DEMO_HOSTS fehlt"
+    return None
+
+
+def demo_anmeldung_offen() -> bool:
+    return demo_anmeldung_gewuenscht() and demo_offen_fehler() is None
+
+
 def stelle_rolle_variante() -> str:
     """'an': Rolle je Beratungsstelle aus /portal/me (Feld stelle_rolle, sobald SortNext es liefert). 'aus' (Voreinstellung): Rolle des Nutzers."""
     return "an" if os.environ.get("SIGNNEXT_STELLE_ROLLE", "") == "an" else "aus"

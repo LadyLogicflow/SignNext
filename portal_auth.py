@@ -152,12 +152,62 @@ def audit(aktion: str, details: str = "") -> None:
     db.audit(g.nutzer["mandant_ref"], g.nutzer["email"], aktion, details, kuerze_ip(client_ip()))
 
 
+# ----- Offen-Modus der Demo (nur Pi-Testinstanz, SIGNNEXT_DEMO_ANMELDUNG=offen) -----
+# Beraterseiten brauchen dort kein Portal-Cookie, werden aber nur beantwortet, wenn ALLE Bedingungen erfüllt sind (sonst 403, fail closed):
+# (a) die Client-Adresse (n-ter Eintrag von rechts in X-Forwarded-For hinter genau einem Proxy, nie ein Wert des Clients) liegt in einem privaten Netz, Tailscale oder Loopback
+#     (config.demo_netze; das Docker-Netz 172.16/12 zählt nicht), (b) der Host-Kopf ist eine der erlaubten Adressen (stoppt DNS-Rebinding), (c) bei ändernden Aufrufen passt
+#     ein vorhandener Origin zum Host, (d) der Zugriff kam über den vertrauenswürdigen Proxy (X-Forwarded-For vorhanden).
+DEMO_NUTZER = {"email": "demo-modus", "rolle": "admin", "mandant_ref": "demo", "demo": True}
+
+
+def _adresse_im_netz(adresse: str) -> bool:
+    import ipaddress
+    try:
+        ip = ipaddress.ip_address((adresse or "").strip())
+    except ValueError:
+        return False
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    return any(ip in netz for netz in config.demo_netze())
+
+
+def _host_name(host: str) -> str:
+    host = (host or "").strip().lower()
+    if host.startswith("["):
+        return host.split("]", 1)[0] + "]"
+    return host.split(":", 1)[0]
+
+
+def offen_pruefen() -> str | None:
+    """None = Zugriff erlaubt, sonst ein kurzer Grund (nur Log/Audit, nie für den Aufrufer)."""
+    if not request.headers.get("X-Forwarded-For", "").strip():
+        return "kein_proxy"
+    if not _adresse_im_netz(client_ip()):
+        return "adresse_nicht_erlaubt"
+    if _host_name(request.headers.get("Host", "")) not in config.demo_hosts():
+        return "host_unbekannt"
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
+        herkunft = request.headers.get("Origin")
+        if herkunft is not None:
+            from urllib.parse import urlsplit
+            if herkunft == "null" or urlsplit(herkunft).netloc.lower() != request.headers.get("Host", "").strip().lower():
+                return "origin_fremd"
+    return None
+
+
 def anmeldung_pflicht(rolle: str | None = None):
     """Decorator. Ohne Cookie 401; ohne Produktzugriff/Rolle 403; SortNext nicht erreichbar 503. ``rolle='admin'`` verlangt die Rolle Admin.
     Setzt g.nutzer = {email, rolle, mandant_ref}; ``mandant_ref`` ist der einzige Mandantenschlüssel."""
     def deko(f):
         @wraps(f)
         def innen(*a, **kw):
+            if config.demo_anmeldung_offen():                  # Demo: feste Beratungsstelle, kein Portal (siehe oben); ohne Erlaubnis 403
+                grund = offen_pruefen()
+                if grund:
+                    db.audit(None, "", "demo_verweigert", grund, kuerze_ip(client_ip()))
+                    return jsonify({"error": "forbidden", "grund": "demo_nicht_erlaubt"}), 403
+                g.nutzer = dict(DEMO_NUTZER)
+                return f(*a, **kw)
             token = request.cookies.get(COOKIE, "")
             if not token:
                 return jsonify({"error": "not authenticated"}), 401

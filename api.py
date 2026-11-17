@@ -22,7 +22,10 @@ bp = Blueprint("api", __name__, url_prefix="/api/v1")
 @bp.get("/me")
 @anmeldung_pflicht()
 def me():
-    return jsonify({"email": g.nutzer["email"], "rolle": g.nutzer["rolle"], "produkt": "signnext"})
+    antwort = {"email": g.nutzer["email"], "rolle": g.nutzer["rolle"], "produkt": "signnext", "demo": bool(g.nutzer.get("demo"))}
+    if antwort["demo"]:
+        antwort["demo_banner"] = "DEMO – Testdaten, keine echten Personendaten"
+    return jsonify(antwort)
 
 
 @bp.get("/vorgaenge")
