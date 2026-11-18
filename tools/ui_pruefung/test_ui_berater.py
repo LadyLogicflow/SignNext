@@ -1,6 +1,7 @@
 """jsdom-Prüfung der Berater-Seiten im Demo-Modus (v0.7.0): Banner, Sperrseite außerhalb des Heimnetzes, Beispiel-PDFs, Demo-Vorgang, Testmail an erlaubte Adresse,
 Link und QR am Bildschirm beim Versenden. Die Schnittstelle spielt der Treiber (drive_sn.js) nach der Schnittstellenbeschreibung nach."""
 import unittest
+from pathlib import Path
 from urllib.parse import unquote
 
 from ui_hilfen import BEREIT, HINWEIS, lauf
@@ -109,10 +110,22 @@ class TestRahmen(unittest.TestCase):
             self.assertEqual([(m["text"], m["href"]) for m in menue], self.MENUE, seite)
             self.assertEqual([m["href"] for m in menue if m["aktuell"]], [aktiv], seite)
 
-    def test_wortmarke_ist_die_offizielle_und_zweifarbig(self):
-        w = lauf(seite="/vorgaenge", ops=[])["start"]["berater"]["wortmarke"]
-        self.assertEqual(w["titel"], "BSt Next")
-        self.assertEqual([f for f in w["farben"] if f != "none"], ["#A3E635", "#FFFFFF"])                                  # "BSt" weiß, "Next" und Chevron Lime - nie einfarbig
+    def test_wortmarke_ist_die_produkt_wortmarke_signnext(self):
+        # catrin 18.11.2026: im Navy-Band steht SignNext (nicht "BSt Next"): "Sign" + "Next" (Lime) + Chevron, Unterzeile bleibt
+        for seite in ("/vorgaenge", "/pruefung?id=1", "/einstellungen", "/mail-zugang"):
+            w = lauf(seite=seite, ops=[])["start"]["berater"]["wortmarke"]
+            self.assertEqual(w["text"], "SignNext", seite)
+            self.assertEqual(w["aria"], "SignNext", seite)
+            self.assertEqual([(t[0], t[1], t[2]) for t in w["teile"][:2]], [("span", "wortmarke-sign", "Sign"), ("span", "wortmarke-next", "Next")], seite)
+            self.assertEqual((w["chevron_pfad"], w["chevron_farbe"], w["chevron_versteckt"]), ("M4 4 L15 14 L4 24", "#A3E635", "true"), seite)
+
+    def test_unterzeile_bleibt_und_bst_next_steht_nicht_mehr_im_kopf(self):
+        ui = Path(__file__).resolve().parents[2] / "ui"
+        for name in ("vorgaenge", "pruefung", "einstellungen", "mail-zugang"):
+            html = (ui / (name + ".html")).read_text(encoding="utf-8")
+            self.assertIn('<p class="band-tag">Unterschriften einholen &amp; nachweisen</p>', html, name)
+            self.assertIn('id="wortmarke" class="wortmarke" role="img" aria-label="SignNext"', html, name)
+            self.assertNotIn('aria-label="BSt Next"', html, name)
 
     def test_angemeldet_als_und_portal_link(self):
         o = lauf(seite="/vorgaenge", api={"me": {"status": 200, "body": {"email": "berater@example.org", "rolle": "admin", "demo": False}}}, ops=[])["start"]["berater"]

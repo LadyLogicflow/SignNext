@@ -39,15 +39,27 @@ body.berater .band-in {
     margin: 0 auto;
 }
 
+/* Produkt-Wortmarke wie BookNext/SortNext: "Sign" weiß fett, "Next" Lime, Chevron */
 body.berater .wortmarke {
-    display: block;
+    display: flex;
+    align-items: center;
     height: 30px;
+    font-family: 'Archivo Black', 'Arial Black', 'Segoe UI', sans-serif;
+    font-size: 28px;
+    line-height: 1;
+    color: #fff;
 }
 
-body.berater .wortmarke svg {
-    height: 30px;
+body.berater .wortmarke-next {
+    color: #a3e635;
+}
+
+body.berater .wortmarke-chevron {
+    position: relative;
+    top: 0.1em;
+    height: 0.55em;
     width: auto;
-    display: block;
+    margin-left: 0.14em;
 }
 
 body.berater .band-tag {
@@ -517,6 +529,45 @@ body.berater .p-mitglied { background: var(--navy-100); color: var(--navy-500); 
 body.berater .p-fertig { background: #dcfce7; color: #166534; }
 body.berater .p-problem { background: #fee2e2; color: #991b1b; }
 body.berater .p-grau { background: #e5e7eb; color: #374151; }
+
+/* Ampel: Symbol + Text + Farbe; Textfarben mit Kontrast >= 4,5:1 auf dem Grund */
+body.berater .ampel {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border: 1px solid;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.3;
+}
+
+body.berater .ampel-symbol {
+    font-size: 15px;
+}
+
+body.berater .ampel-rot { background: #fef2f2; border-color: #b91c1c; color: #991b1b; }
+body.berater .ampel-gelb { background: #fefce8; border-color: #a16207; color: #713f12; }
+body.berater .ampel-gruen { background: #f0fdf4; border-color: #15803d; color: #14532d; }
+
+body.berater .ampel-zeile {
+    margin: 0 0 8px;
+}
+
+body.berater .abgeholt-zeile {
+    margin: 4px 0 8px;
+}
+
+body.berater .alles-block {
+    margin: 0 0 16px;
+}
+
+body.berater .alles-fortschritt {
+    margin: 8px 0 0;
+    font-size: 14px;
+    overflow-wrap: anywhere;
+}
 
 body.berater .mehr {
     position: relative;

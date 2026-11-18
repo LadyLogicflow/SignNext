@@ -10,7 +10,7 @@
 <body class="berater">
     <div class="band">
         <div class="band-in">
-            <span id="wortmarke" class="wortmarke" role="img" aria-label="BSt Next"></span>
+            <span id="wortmarke" class="wortmarke" role="img" aria-label="SignNext"></span>
             <p class="band-tag">Unterschriften einholen &amp; nachweisen</p>
             <a id="portal-link" class="band-link hidden" href="#">← Zurück zum Hauptportal</a>
         </div>
@@ -126,6 +126,7 @@
 
                 <!-- Schritt 3 (danach): Status -->
                 <section id="panel-status" class="hidden" aria-label="Stand des Vorgangs">
+                    <p id="status-ampel" class="ampel-zeile hidden"></p>
                     <div id="status-hinweis" class="hinweis hidden" role="status"><span id="status-hinweis-text" class="hinweis-text"></span><button id="btn-status-aktion" type="button" class="btn btn-primary hidden"></button></div>
                     <div id="demo-link-box" class="card hidden"></div>
                     <section id="status-dokumente-karte" class="card hidden">
@@ -154,17 +155,20 @@
 
                 <!-- Schritt 4: Abholen -->
                 <section id="panel-abholen" class="hidden" aria-label="Dokumente abholen">
+                    <p id="abholen-ampel" class="ampel-zeile hidden"></p>
                     <div id="abholen-hinweis" class="hinweis hinweis-gruen"><span id="abholen-hinweis-text" class="hinweis-text"></span></div>
                     <div id="abholen-mehrere" class="hidden"></div>
                     <div id="abholen-einzeln" class="raster zwei">
                         <section class="card">
                             <h2>Unterschriebenes Dokument</h2>
                             <p class="upload-regeln">Das Steuerprotokoll mit den Unterschriften.</p>
+                            <p id="abgeholt-dokument" class="upload-regeln abgeholt-zeile"></p>
                             <button id="btn-dl-dokument" type="button" class="btn btn-primary btn-gross">PDF herunterladen</button>
                         </section>
                         <section class="card">
                             <h2>Nachweis</h2>
                             <p class="upload-regeln">Wer wann unterschrieben hat – zum Abheften.</p>
+                            <p id="abgeholt-nachweis" class="upload-regeln abgeholt-zeile"></p>
                             <button id="btn-dl-nachweis" type="button" class="btn btn-primary btn-gross">Nachweis herunterladen</button>
                         </section>
                     </div>

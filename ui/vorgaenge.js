@@ -224,6 +224,19 @@ function zeile(v) {
     sub.textContent = `Vorgang ${v.id} · angelegt ${datumUhr(v.erstellt)}`;
     wer.append(name, sub);
     const status = document.createElement('div');
+    const ampel = Berater.ampelBaustein(v.ampel);
+    if (ampel) {
+        const zeile = document.createElement('div');
+        zeile.className = 'ampel-zeile';
+        zeile.appendChild(ampel);
+        status.appendChild(zeile);
+        if (Number(v.dokumente_gesamt) > 1 && Number.isInteger(v.dokumente_abgeholt) && v.ampel !== 'rot') {
+            const ab = document.createElement('div');
+            ab.className = 'zeile-sub';
+            ab.textContent = `${v.dokumente_abgeholt} von ${v.dokumente_gesamt} Dokumenten abgeholt`;
+            status.appendChild(ab);
+        }
+    }
     const pille = document.createElement('span');
     pille.className = 'pille ' + PILLEN[info.gruppe];
     pille.textContent = info.text;

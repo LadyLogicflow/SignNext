@@ -199,5 +199,29 @@
         container.classList.remove('hidden');
     }
 
-    window.Berater = {bereit, istDemo, kopieren, linkBoxZeigen, qrAlsDatenAdresse};
+    // Ampel je Vorgang: Symbol + Text + Farbe (Farbe nie allein); ohne gültigen Wert (null = noch nicht versendet) gibt es keine Ampel
+    const AMPEL = {
+        rot: {symbol: '✕', text: 'Nicht vollständig unterschrieben'},
+        gelb: {symbol: '◔', text: 'Unterschrieben, noch nicht abgeholt'},
+        gruen: {symbol: '✓', text: 'Alles abgeholt'},
+    };
+
+    function ampelBaustein(wert) {
+        const a = Object.prototype.hasOwnProperty.call(AMPEL, wert) ? AMPEL[wert] : null;
+        if (!a) return null;
+        const span = document.createElement('span');
+        span.className = 'ampel ampel-' + wert;
+        span.dataset.ampel = wert;
+        const symbol = document.createElement('span');
+        symbol.className = 'ampel-symbol';
+        symbol.setAttribute('aria-hidden', 'true');
+        symbol.textContent = a.symbol;
+        const text = document.createElement('span');
+        text.className = 'ampel-text';
+        text.textContent = a.text;
+        span.append(symbol, text);
+        return span;
+    }
+
+    window.Berater = {bereit, istDemo, kopieren, linkBoxZeigen, qrAlsDatenAdresse, ampelBaustein};
 })();

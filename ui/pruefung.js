@@ -48,10 +48,23 @@ async function api(method, path, body = null) {
 function dokumenteDesVorgangs() {
     const f = vorgang && Array.isArray(vorgang.dokumente_fortschritt) ? vorgang.dokumente_fortschritt : null;
     if (f && f.length) {
-        return f.map(d => ({rolle: d.rolle, titel: d.titel || DOK_TITEL[d.rolle] || String(d.rolle), erforderlich: d.erforderlich || [], unterschrieben: d.unterschrieben || [], fertig: !!d.fertig}));
+        return f.map(d => ({rolle: d.rolle, titel: d.titel || DOK_TITEL[d.rolle] || String(d.rolle), erforderlich: d.erforderlich || [], unterschrieben: d.unterschrieben || [], fertig: !!d.fertig, abgeholt: d.abgeholt_am || d.dokument_abgeholt_am || null, nachweisAbgeholt: d.nachweis_abgeholt_am || null}));
     }
     const rollen = ((vorgang && vorgang.dokumente) || []).map(d => d.rolle);
-    return ['B', 'A'].filter(r => rollen.includes(r)).map(r => ({rolle: r, titel: DOK_TITEL[r], erforderlich: [], unterschrieben: [], fertig: false}));
+    return ['B', 'A'].filter(r => rollen.includes(r)).map(r => ({rolle: r, titel: DOK_TITEL[r], erforderlich: [], unterschrieben: [], fertig: false, abgeholt: null, nachweisAbgeholt: null}));
+}
+
+// Ampel des Vorgangs (rot/gelb/gruen vom Server); ohne Wert (null = noch nicht versendet) bleibt die Stelle leer
+function ampelZeigen(id) {
+    const stelle = el(id);
+    stelle.textContent = '';
+    const a = Berater.ampelBaustein(vorgang && vorgang.ampel);
+    if (a) stelle.appendChild(a);
+    stelle.classList.toggle('hidden', !a);
+}
+
+function abgeholtText(wann) {
+    return wann ? `abgeholt am ${datumUhr(wann)}` : 'noch nicht abgeholt';
 }
 
 function mehrereDokumente() {
@@ -387,6 +400,7 @@ function zeigeStatus() {
         lb.classList.add('hidden');
         lb.textContent = '';
     }
+    ampelZeigen('status-ampel');
     zeichneZeitstrahl();
     dokumenteKarteZeigen();
     const nachfassen = s === 'versendet';
@@ -523,6 +537,7 @@ function zeigeAbholen() {
         ? `${mehrere ? 'Alle Dateien' : 'Beide Dateien'} bleiben bis ${frist} hier abrufbar und werden danach automatisch gelöscht.`
         : `${mehrere ? 'Alle Dateien' : 'Beide Dateien'} bleiben hier abrufbar und werden nach Ablauf der Aufbewahrungsfrist automatisch gelöscht.`;
     zeigeFehler('abholen-fehler', '');
+    ampelZeigen('abholen-ampel');
     abholenBloecke();
 }
 
@@ -531,6 +546,11 @@ function abholenBloecke() {
     const dok = dokumenteDesVorgangs();
     const mehrere = dok.length > 1;
     el('abholen-einzeln').classList.toggle('hidden', mehrere);
+    if (!mehrere) {
+        const d = dok[0] || {};
+        el('abgeholt-dokument').textContent = `Dokument: ${abgeholtText(d.abgeholt || vorgang.abgeholt_am || vorgang.dokument_abgeholt_am)}`;
+        el('abgeholt-nachweis').textContent = `Nachweis: ${abgeholtText(d.nachweisAbgeholt || vorgang.nachweis_abgeholt_am)}`;
+    }
     const box = el('abholen-mehrere');
     box.classList.toggle('hidden', !mehrere);
     box.textContent = '';
@@ -544,6 +564,10 @@ function abholenBloecke() {
         const p = document.createElement('p');
         p.className = 'upload-regeln';
         p.textContent = `Das unterschriebene ${d.titel} und der Nachweis, wer wann unterschrieben hat.`;
+        const abgeholt = document.createElement('p');
+        abgeholt.className = 'upload-regeln abgeholt-zeile';
+        abgeholt.dataset.abgeholt = d.rolle;
+        abgeholt.textContent = `Dokument: ${abgeholtText(d.abgeholt)} · Nachweis: ${abgeholtText(d.nachweisAbgeholt)}`;
         const knoepfe = document.createElement('div');
         knoepfe.className = 'abholen-knoepfe';
         [['dokument', `${d.titel} herunterladen`], ['nachweis', `Nachweis zum ${d.titel} herunterladen`]].forEach(([art, text]) => {
@@ -555,7 +579,7 @@ function abholenBloecke() {
             b.addEventListener('click', () => herunterladen(art, d.rolle, d.titel));
             knoepfe.appendChild(b);
         });
-        karte.append(h, p, knoepfe);
+        karte.append(h, p, abgeholt, knoepfe);
         box.appendChild(karte);
     });
 }
@@ -576,8 +600,20 @@ async function herunterladen(art, rolle, titel) {
         a.download = rolle ? `${art}_${String(titel || rolle).replace(/[^A-Za-z0-9_-]+/g, '_')}_${vorgangId}.pdf` : `${art}_${vorgangId}.pdf`;
         a.click();
         URL.revokeObjectURL(url);
+        await abholStandAktualisieren();
     } catch (err) {
         zeigeFehler('abholen-fehler', err.message);
+    }
+}
+
+// Nach einem Abruf meldet der Server den neuen Stand (abgeholt am, Ampel); nur diese Stellen werden neu gezeichnet
+async function abholStandAktualisieren() {
+    try {
+        vorgang = await api('GET', `/vorgaenge/${vorgangId}`);
+        ampelZeigen('abholen-ampel');
+        abholenBloecke();
+    } catch (err) {
+        // der Download selbst hat geklappt; die Anzeige holt sich beim nächsten Aktualisieren den Stand
     }
 }
 

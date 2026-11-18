@@ -41,7 +41,21 @@ const STANDARD_VORGANG = {id: 1, status: 'bereit', erstellt: '2026-11-17T13:05:0
     bestaetigt_am: null, versendet_am: null, unterschrieben_am: null, abgeschlossen_am: null, aufbewahrung_bis: null, erinnerungen_aus: false, link_status: null, dokumente: []};
 const STANDARD_ANGABEN = {name: {wert: 'Erika Muster', herkunft: 'pdf'}, geburtsdatum: {wert: '01.02.1960', herkunft: 'pdf', gesetzt: true}, email: {wert: 'erika@example.org', herkunft: 'pdf'}, personen: {wert: 2, herkunft: 'pdf'}};
 const zustand = {v: Object.assign({}, STANDARD_VORGANG, cfg.vorgang || {}), angaben: Object.assign(JSON.parse(JSON.stringify(STANDARD_ANGABEN)), JSON.parse(JSON.stringify(cfg.angaben || {}))), person: 1, unterschrieben: [], handoffAbfragen: 0, abgeholt: false, handoffNummer: 0, downloads: [], gelesen: {}, dokUnter: {}, hakenPerson: {}, vorgaenge: JSON.parse(JSON.stringify(cfg.vorgaenge || STANDARD_LISTE))};
+zustand.abgeholt = JSON.parse(JSON.stringify(cfg.abgeholt || {}));
+zustand.abrufe = [];
 const aufrufe = [];
+
+// Vorgangs-Antwort wie das Backend (Teil 19): ampel + je Dokument abgeholt_am (PDF) / nachweis_abgeholt_am; gelb/gruen erst ab vollständig unterschrieben
+function vorgangMitAbholstand() {
+    if (!cfg.abholSicht) return zustand.v;
+    const liste = dokumente().map(d => {
+        const a = zustand.abgeholt[d.rolle] || {};
+        return {rolle: d.rolle, titel: d.titel, erforderlich: d.erforderlich, unterschrieben: d.erforderlich.slice(), fertig: true, abgeholt_am: a.dokument || null, dokument_abgeholt_am: a.dokument || null, nachweis_abgeholt_am: a.nachweis || null};
+    });
+    const alle = liste.every(d => d.abgeholt_am);
+    const ampel = cfg.ampel !== undefined ? cfg.ampel : (alle ? 'gruen' : 'gelb');
+    return Object.assign({}, zustand.v, {ampel, dokumente_fortschritt: liste});
+}
 
 function senden(res, status, obj, typ) {
     const roh = typ ? obj : JSON.stringify(obj);
@@ -175,6 +189,13 @@ function api(req, res, pfad, body) {
     if (treffer && m === 'GET') {
         if (cfg.downloadFehler) return senden(res, cfg.downloadFehler.status, cfg.downloadFehler.body);
         if (cfg.downloadMehrere && !new URL(req.url, 'http://x').searchParams.get('dokument')) return fehler(400, 'dokument_waehlen', 'Bitte wählen Sie ein Dokument.', {dokumente: cfg.downloadMehrere});
+        const rolleAbruf = new URL(req.url, 'http://x').searchParams.get('dokument') || dokumente()[0].rolle;
+        zustand.abrufe.push(`${treffer[2]}:${rolleAbruf}`);
+        if (cfg.downloadFehlerDatei && cfg.downloadFehlerDatei.art === treffer[2] && cfg.downloadFehlerDatei.rolle === rolleAbruf) return senden(res, cfg.downloadFehlerDatei.status, cfg.downloadFehlerDatei.body);
+        if (cfg.abholSicht) {
+            zustand.abgeholt[rolleAbruf] = zustand.abgeholt[rolleAbruf] || {};
+            if (!zustand.abgeholt[rolleAbruf][treffer[2]]) zustand.abgeholt[rolleAbruf][treffer[2]] = `2026-11-18T09:${String(10 + zustand.abrufe.length).padStart(2, '0')}:00Z`;
+        }
         return senden(res, 200, '%PDF-1.4 test', 'application/pdf');
     }
     if (pfad === '/api/v1/demo' && m === 'GET') return senden(res, 200, cfg.demoInfo);
@@ -202,7 +223,7 @@ function api(req, res, pfad, body) {
     if (pfad === '/api/v1/einstellungen') return senden(res, 200, {gesetzt: true, verantwortlicher: 'Beratungsstelle Beispiel, Musterstr. 1', datenschutz_link: 'https://beispiel.example/datenschutz', aufbewahrung_tage: 90, mitglied_download_link: false});
     if (pfad === '/api/v1/mail-zugang' && m === 'GET') return senden(res, 200, cfg.mailZugang);
     if (pfad === '/api/v1/mail-zugang' && m === 'PUT') return senden(res, cfg.mailPut.status, cfg.mailPut.body);
-    if (/^\/api\/v1\/vorgaenge\/\d+$/.test(pfad) && m === 'GET') return cfg.vorgangFehler ? senden(res, cfg.vorgangFehler.status, cfg.vorgangFehler.body) : senden(res, 200, zustand.v);
+    if (/^\/api\/v1\/vorgaenge\/\d+$/.test(pfad) && m === 'GET') return cfg.vorgangFehler ? senden(res, cfg.vorgangFehler.status, cfg.vorgangFehler.body) : senden(res, 200, vorgangMitAbholstand());
     if (/^\/api\/v1\/vorgaenge\/\d+\/pruefung$/.test(pfad) && m === 'GET') {
         const a = zustand.angaben;
         const fehlend = [];
@@ -330,6 +351,7 @@ async function main() {
 
     const sichtbar = (id) => { const e = doc.getElementById(id); return !!e && !e.classList.contains('hidden'); };
     const text = (id) => { const e = doc.getElementById(id); return e ? e.textContent.trim() : null; };
+    const ampelVon = (id) => { const e = doc.getElementById(id); const a = e && !e.classList.contains('hidden') ? e.querySelector('.ampel') : null; return a ? {wert: a.dataset.ampel, klasse: a.className, symbol: a.querySelector('.ampel-symbol').textContent, text: a.querySelector('.ampel-text').textContent, symbol_versteckt: a.querySelector('.ampel-symbol').getAttribute('aria-hidden')} : null; };
     const aktiverSchritt = () => [...doc.querySelectorAll('.step')].filter(s => !s.classList.contains('hidden')).map(s => s.id);
     const berater = () => {
         const ergebnis = (id) => {
@@ -342,12 +364,12 @@ async function main() {
                     qr: qr ? {tag: qr.tagName, src: qr.getAttribute('src')} : null};
         };
         const banner = doc.getElementById('demo-banner');
-        const wm = doc.querySelector('#wortmarke svg');
+        const wm = doc.getElementById('wortmarke');
         const menue = [...doc.querySelectorAll('#berater-nav a')].map(a => ({text: a.textContent.trim(), href: a.getAttribute('href'), aktuell: a.getAttribute('aria-current') === 'page'}));
         const hinweise = [...doc.querySelectorAll('#hinweisleiste .hinweis')].map(h => ({text: h.querySelector('.hinweis-text').textContent.trim(), knopf: h.querySelector('a').textContent.trim(), href: h.querySelector('a').getAttribute('href')}));
         const karten = doc.querySelectorAll('#vorgaenge-liste .zeile').length;
         return {
-            wortmarke: wm ? {titel: (wm.querySelector('title') || {}).textContent, farben: [...wm.querySelectorAll('[fill],[stroke]')].map(e => e.getAttribute('fill') || e.getAttribute('stroke')).filter((f, i, l) => l.indexOf(f) === i).sort()} : null,
+            wortmarke: wm && wm.firstChild ? {text: wm.textContent, aria: wm.getAttribute('aria-label'), teile: [...wm.children].map(e => [e.tagName.toLowerCase(), e.getAttribute('class'), e.textContent]), chevron_pfad: wm.querySelector('svg path') ? wm.querySelector('svg path').getAttribute('d') : null, chevron_farbe: wm.querySelector('svg path') ? wm.querySelector('svg path').getAttribute('stroke') : null, chevron_versteckt: wm.querySelector('svg') ? wm.querySelector('svg').getAttribute('aria-hidden') : null} : null,
             angemeldet: sichtbar('angemeldet') ? text('angemeldet') : null,
             portal_link: sichtbar('portal-link') ? doc.getElementById('portal-link').getAttribute('href') : null,
             menue, hinweise,
@@ -382,13 +404,14 @@ async function main() {
                         an: t('senden-an'), mailhinweis: t('senden-mailhinweis-text') && offen('senden-mailhinweis') ? t('senden-mailhinweis-text') : null, versenden_gesperrt: doc.getElementById('btn-versenden').disabled,
                         vor_ort: offen('vor-ort-karte'), versand_fehler: t('versand-error'), ohne_mail: offen('ohne-mail'), vor_ort_fehler: t('vor-ort-fehler')} : null,
                     status: offen('panel-status') ? {
+                        ampel: ampelVon('status-ampel'),
                         hinweis: offen('status-hinweis') ? {klasse: hinweisBox.className.replace('hinweis ', '').trim(), text: t('status-hinweis-text'), aktion: offen('btn-status-aktion') ? doc.getElementById('btn-status-aktion').textContent : null} : null,
                         zeitstrahl: [...doc.querySelectorAll('#zeitstrahl li')].map(li => ({text: li.firstChild.textContent, zeit: li.querySelector('small') ? li.querySelector('small').textContent : null, offen: li.classList.contains('offen')})),
                         link_box: ergebnis('demo-link-box'),
                         dokumente: offen('status-dokumente-karte') ? [...doc.querySelectorAll('#status-dokumente li')].map(li => ({titel: li.querySelector('strong').textContent, stand: li.querySelector('span').textContent})) : null,
                         neuer_link: offen('btn-neuer-link'), erinnerungen: offen('erinnerungen-zeile') ? doc.getElementById('erinnerungen-aktiv').checked : null, loeschen: offen('btn-loeschen'),
                         rueckfrage: offen('aktion-rueckfrage') ? {text: t('aktion-rueckfrage-text'), ja: doc.getElementById('btn-rueckfrage-ja').textContent} : null, fehler: t('status-fehler')} : null,
-                    abholen: offen('panel-abholen') ? {einzeln_sichtbar: offen('abholen-einzeln'), bloecke: [...doc.querySelectorAll('#abholen-mehrere .abholen-block')].map(k => ({rolle: k.dataset.rolle, titel: k.querySelector('h2').textContent, knoepfe: [...k.querySelectorAll('button')].map(b => b.textContent)})), hinweis: t('abholen-hinweis-text'), frist: t('abholen-frist'), fehler: t('abholen-fehler'), rueckfrage: offen('abholen-rueckfrage') ? t('abholen-rueckfrage-text') : null} : null,
+                    abholen: offen('panel-abholen') ? {ampel: ampelVon('abholen-ampel'), abgeholt: [...doc.querySelectorAll('[data-abgeholt]')].map(p => [p.dataset.abgeholt, p.textContent]), abgeholt_einzeln: [doc.getElementById('abgeholt-dokument').textContent, doc.getElementById('abgeholt-nachweis').textContent], abrufe: zustand.abrufe.slice(), einzeln_sichtbar: offen('abholen-einzeln'), bloecke: [...doc.querySelectorAll('#abholen-mehrere .abholen-block')].map(k => ({rolle: k.dataset.rolle, titel: k.querySelector('h2').textContent, knoepfe: [...k.querySelectorAll('button')].map(b => b.textContent)})), hinweis: t('abholen-hinweis-text'), frist: t('abholen-frist'), fehler: t('abholen-fehler'), rueckfrage: offen('abholen-rueckfrage') ? t('abholen-rueckfrage-text') : null} : null,
                     geloescht: offen('panel-geloescht') ? t('geloescht-text') : null, downloads: zustand.downloads.slice()};
             })() : null,
             uebersicht: doc.getElementById('uebersicht') && sichtbar('uebersicht') ? {
@@ -398,7 +421,7 @@ async function main() {
                 leer_hinweis: sichtbar('leer-hinweis'), listen_karte: sichtbar('listen-karte'),
                 leer_in_liste: doc.querySelector('#vorgaenge-liste .liste-leer') ? doc.querySelector('#vorgaenge-liste .liste-leer').textContent : null,
                 zeilen: [...doc.querySelectorAll('#vorgaenge-liste .zeile')].map(z => ({
-                    id: z.dataset.id, name: z.querySelector('.zeile-name').textContent, sub: z.querySelector('.zeile-sub').textContent,
+                    id: z.dataset.id, ampel: z.querySelector('.ampel') ? [z.querySelector('.ampel').dataset.ampel, z.querySelector('.ampel-symbol').textContent, z.querySelector('.ampel-text').textContent] : null, ampel_zusatz: z.querySelector('.ampel-zeile + .zeile-sub') ? z.querySelector('.ampel-zeile + .zeile-sub').textContent : null, name: z.querySelector('.zeile-name').textContent, sub: z.querySelector('.zeile-sub').textContent,
                     pille: z.querySelector('.pille').textContent, pille_klasse: z.querySelector('.pille').className.replace('pille ', ''),
                     zusatz: z.querySelectorAll('.zeile > div:nth-child(2) .zeile-sub')[0] ? z.querySelectorAll('.zeile > div:nth-child(2) .zeile-sub')[0].textContent : null,
                     personen: z.querySelector('.zeile > div:nth-child(3)').textContent,

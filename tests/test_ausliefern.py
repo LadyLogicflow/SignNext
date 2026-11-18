@@ -234,6 +234,43 @@ class TestBeraterRahmenStatik(unittest.TestCase):
         self.assertNotIn("aktion.appendChild(box)", frage)
         self.assertNotRegex(frage, r"aktion\.textContent\s*=\s*''")                                      # Aktionsspalte behält ihre Breite
 
+    def test_ampel_farben_haben_genug_kontrast_und_immer_text_und_symbol(self):
+        # catrin 18.11.2026: Farbe nie allein; Text auf dem Grund mindestens 4,5:1
+        css = (UI / "berater.css").read_text(encoding="utf-8")
+
+        def hell(hexwert):
+            kanaele = [int(hexwert[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+            lin = [k / 12.92 if k <= 0.03928 else ((k + 0.055) / 1.055) ** 2.4 for k in kanaele]
+            return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+
+        def kontrast(a, b):
+            la, lb = sorted((hell(a), hell(b)), reverse=True)
+            return (la + 0.05) / (lb + 0.05)
+
+        for farbe in ("rot", "gelb", "gruen"):
+            regel = re.search(r"body\.berater \.ampel-%s\s*\{([^}]*)\}" % farbe, css)
+            self.assertIsNotNone(regel, farbe)
+            grund = re.search(r"background:\s*(#[0-9a-fA-F]{6})", regel.group(1)).group(1)
+            text = re.search(r"(?<!-)color:\s*(#[0-9a-fA-F]{6})", regel.group(1)).group(1)
+            rand = re.search(r"border-color:\s*(#[0-9a-fA-F]{6})", regel.group(1)).group(1)
+            self.assertGreaterEqual(kontrast(text, grund), 4.5, "Text %s" % farbe)
+            self.assertGreaterEqual(kontrast(rand, grund), 3.0, "Rand %s" % farbe)
+        js = (UI / "berater.js").read_text(encoding="utf-8")
+        for symbol in ("✕", "◔", "✓"):
+            self.assertIn(symbol, js)                                                            # jedes Zeichen steht neben dem Text, nicht statt seiner
+        self.assertIn("ampel-text", js)
+
+    def test_produkt_wortmarke_farben_nach_stylebook(self):
+        # "Sign" weiß fett, "Next" Lime, Chevron Lime (wie BookNext/SortNext); kein BSt-Next-Bild mehr im Kopf
+        css = (UI / "berater.css").read_text(encoding="utf-8")
+        marke = re.search(r"body\.berater \.wortmarke\s*\{([^}]*)\}", css).group(1)
+        self.assertRegex(marke, r"color:\s*#fff\b")
+        self.assertIn("Archivo Black", marke)
+        self.assertRegex(re.search(r"body\.berater \.wortmarke-next\s*\{([^}]*)\}", css).group(1), r"color:\s*#a3e635")
+        js = (UI / "wortmarke.js").read_text(encoding="utf-8")
+        self.assertIn("'#A3E635'", js)
+        self.assertNotIn("BSt Next", js)
+
     def test_der_testdaten_balken_steht_nirgends_mehr_im_code(self):
         for datei in [d for d in UI.glob("*") if d.is_file()]:
             text = datei.read_text(encoding="utf-8")
