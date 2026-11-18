@@ -410,10 +410,9 @@ class TestUpload(RouteBasis):
         self.assertEqual((j["status"], j["abgleich"]["status"], j["personen"], j["mail_erkannt"]), ("bereit", "automatisch", 2, True))
         self.assertEqual([(d["rolle"], d["seiten"], d["stellen"]) for d in j["dokumente"]], [("A", 12, 2), ("B", 4, 4)])
         v = self.c.get("/api/v1/vorgaenge/%d" % j["vorgang_id"]).get_json()
-        self.assertEqual(sorted(d["rolle"] for d in v["dokumente"]), ["A", "B", "M"])
-        m = [d for d in v["dokumente"] if d["rolle"] == "M"][0]
-        self.assertEqual((m["seiten"], len(m["stellen"])), (16, 6))
-        self.assertEqual(len(self.alle_dateien()), 3)
+        self.assertEqual(sorted(d["rolle"] for d in v["dokumente"]), ["A", "B"])                  # jedes Dokument bleibt einzeln (kein zusammengeführtes M mehr)
+        self.assertEqual([(d["rolle"], d["seiten"], len(d["stellen"])) for d in sorted(v["dokumente"], key=lambda d: d["rolle"])], [("A", 12, 2), ("B", 4, 4)])
+        self.assertEqual(len(self.alle_dateien()), 2)
 
     def test_dateinamen_zaehlen_nicht(self):
         r = hochladen(self.c, pdfs.a_pdf(), pdfs.b_pdf(), namen=["anschreiben_b.pdf", "elster_a.pdf"])
@@ -541,8 +540,7 @@ class TestBestaetigung(RouteBasis):
         v = self.c.get("/api/v1/vorgaenge/%d" % j["vorgang_id"]).get_json()
         self.assertEqual((v["status"], v["bestaetigt_von"]), ("bereit", "a@test.example"))
         self.assertTrue(v["bestaetigt_am"])
-        m = [d for d in v["dokumente"] if d["rolle"] == "M"]
-        self.assertEqual((len(m), m[0]["seiten"], len(m[0]["stellen"])), (1, 16, 6))
+        self.assertEqual(sorted(d["rolle"] for d in v["dokumente"]), ["A", "B"])                  # nach der Bestätigung bleiben beide Dokumente einzeln
         self.assertEqual(len(self.audit_zeilen("abgleich_bestaetigt")), 1)
         self.assertEqual(self.c.post(url, json={"bestaetigt": True}).status_code, 409)       # nur einmal
 
@@ -572,7 +570,7 @@ class TestMandantentrennungUndLoeschung(RouteBasis):
         self.assertEqual(self.c.get("/api/v1/vorgaenge/%d" % j["vorgang_id"]).status_code, 404)
         self.assertEqual(self.c.get("/api/v1/vorgaenge").get_json()["vorgaenge"], [])
         self.assertEqual(db.dokumente_liste("2002", j["vorgang_id"]), [])
-        for rolle in ("A", "B", "M"):
+        for rolle in ("A", "B"):
             self.assertIsNone(db.dokument_bytes("2002", j["vorgang_id"], rolle))
             self.assertIsNotNone(db.dokument_bytes("1001", j["vorgang_id"], rolle))
 
@@ -603,7 +601,7 @@ class TestMandantentrennungUndLoeschung(RouteBasis):
         self.als("tb", me(email="b@test.example", ref="2002"))
         hochladen(self.c, pdfs.b_pdf())
         zahlen = db.mandant_loeschen("1001")
-        self.assertEqual((zahlen["dateien"], zahlen["dokument"], zahlen["vorgang"]), (3, 3, 1))
+        self.assertEqual((zahlen["dateien"], zahlen["dokument"], zahlen["vorgang"]), (2, 2, 1))
         self.assertFalse(db.dokumente_verzeichnis("1001").exists())
         self.assertTrue(db.dokumente_verzeichnis("2002").is_dir())
         self.assertEqual(len(db.vorgaenge_liste("2002")), 1)

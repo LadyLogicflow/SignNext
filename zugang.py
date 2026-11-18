@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 from flask import Blueprint, jsonify, request
 
 import abschluss
+import dokumente
 import config
 import db
 import schluessel
@@ -206,7 +207,7 @@ def _sitzung():
     jetzt = _zeit(_jetzt())
     if s["laeuft_ab"] <= jetzt or s["l_ab"] <= jetzt or s["l_gesperrt"] or s["l_verbraucht"] or s["vstatus"] not in LINK_STATI or s["personen"] not in (1, 2):
         return None
-    s["seiten_geliefert"] = json.loads(s["seiten_geliefert"])
+    s["dok_stand"] = json.loads(s["dok_stand"] or "{}")
     return s
 
 
@@ -214,17 +215,37 @@ def _ohne_sitzung():
     return _json({"error": "sitzung_ungueltig", "meldung": "Bitte öffnen Sie den Link aus der E-Mail erneut."}, 401)
 
 
-def _dokument(s: dict):
-    """(Rolle, Seitenzahl) des Dokuments, das unterschrieben wird: das zusammengeführte PDF, sonst das einzelne."""
-    zeilen = {d["rolle"]: d for d in db.dokumente_liste(s["mandant_ref"], s["vorgang_id"])}
-    for rolle in ("M", "B", "A"):
-        if rolle in zeilen:
-            return rolle, zeilen[rolle]["seiten"]
-    return None, 0
+def _dokumente(s: dict) -> list:
+    """Dokumente des Vorgangs mit Stand: [{rolle, titel, seiten, erforderlich, unterschrieben, fertig}] (Anschreiben vor Protokoll)."""
+    liste = dokumente.liste(s["mandant_ref"], s["vorgang_id"], s["personen"])
+    with db.verbindung() as c:
+        return dokumente.mit_stand(c, s["mandant_ref"], s["vorgang_id"], liste)
 
 
-def _unterschriebene(c, s: dict) -> list:
-    return [z["person"] for z in c.execute("SELECT person FROM unterschrift WHERE vorgang_id=? AND mandant_ref=? ORDER BY person", (s["vorgang_id"], s["mandant_ref"]))]
+def _stand(s: dict, rolle: str) -> dict:
+    """Lese-Stand der Sitzung für ein Dokument: {'geliefert': [Seitennummern], 'gelesen_am': Zeit oder None}."""
+    return s["dok_stand"].get(rolle) or {"geliefert": [], "gelesen_am": None}
+
+
+def _aktuell(stand_liste: list):
+    """(aktuelles Dokument, nächste Person): das erste Dokument, in dem noch jemand fehlt (sonst das letzte)."""
+    dok, person = dokumente.naechste(stand_liste)
+    return (dok or (stand_liste[-1] if stand_liste else None)), person
+
+
+def _stand_aendern(s: dict, rolle: str, aendern) -> dict:
+    """Liest und schreibt den Lese-Stand eines Dokuments in einer Transaktion (``aendern(eintrag)`` verändert den Eintrag)."""
+    with db.verbindung() as c:
+        z = c.execute("SELECT dok_stand FROM sitzung WHERE id=?", (s["id"],)).fetchone()
+        stand = json.loads(z["dok_stand"] or "{}") if z else {}
+        eintrag = stand.setdefault(rolle, {"geliefert": [], "gelesen_am": None})
+        aendern(eintrag)
+        c.execute("UPDATE sitzung SET dok_stand=? WHERE id=?", (json.dumps(stand), s["id"]))
+        return eintrag
+
+
+def _oeffentlich(d: dict) -> dict:
+    return {k: d[k] for k in ("rolle", "titel", "seiten", "erforderlich", "unterschrieben", "fertig")}
 
 
 @bp.get("/status")
@@ -232,12 +253,24 @@ def status():
     s = _sitzung()
     if s is None:
         return _ohne_sitzung()
-    _, seiten = _dokument(s)
+    docs = _dokumente(s)
+    dok, person = _aktuell(docs)
+    if dok is None:
+        return _json({"error": "nicht_gefunden"}, 404)
+    st = _stand(s, dok["rolle"])
     with db.verbindung() as c:
-        fertig = _unterschriebene(c, s)
-    schritt = "lesen" if not s["gelesen_am"] else ("texte" if not s["texte_angezeigt_am"] else "unterschreiben")
-    return _json({"schritt": schritt, "seiten": seiten, "geliefert": len(s["seiten_geliefert"]), "personen": s["personen"], "unterschrieben": fertig,
-                  "naechste_person": len(fertig) + 1 if len(fertig) < s["personen"] else None})
+        noetig = person is not None and dokumente.zustimmung_fehlt(c, s["mandant_ref"], s["vorgang_id"], person)
+    schritt = "lesen" if not st["gelesen_am"] else ("texte" if (noetig and not s["texte_angezeigt_am"]) else "unterschreiben")
+    return _json({"schritt": schritt, "dokument": {"rolle": dok["rolle"], "titel": dok["titel"], "nr": docs.index(dok) + 1, "von": len(docs), "seiten": dok["seiten"]},
+                  "dokumente": [_oeffentlich(d) for d in docs], "seiten": dok["seiten"], "geliefert": len(st["geliefert"]), "personen": s["personen"],
+                  "unterschrieben": dok["unterschrieben"], "naechste_person": person, "texte_noetig": bool(noetig)})
+
+
+def _dokument_aus_angabe(docs: list, angabe):
+    """Das Dokument zur Angabe (None: das aktuelle) oder None bei einer ungültigen Angabe."""
+    if angabe is None:
+        return _aktuell(docs)[0]
+    return next((d for d in docs if d["rolle"] == angabe), None) if isinstance(angabe, str) else None
 
 
 @bp.get("/seite/<int:nr>")
@@ -245,22 +278,19 @@ def seite(nr):
     s = _sitzung()
     if s is None:
         return _ohne_sitzung()
-    rolle, seiten = _dokument(s)
-    if rolle is None or not 1 <= nr <= seiten:
+    docs = _dokumente(s)
+    dok = _dokument_aus_angabe(docs, request.args.get("dokument"))
+    if dok is None or not 1 <= nr <= dok["seiten"]:
         return _json({"error": "nicht_gefunden"}, 404)
-    daten = db.dokument_bytes(s["mandant_ref"], s["vorgang_id"], rolle)
+    daten = db.dokument_bytes(s["mandant_ref"], s["vorgang_id"], dok["rolle"])
     if daten is None:
         return _json({"error": "nicht_gefunden"}, 404)
     try:
         bild = seitenbild.rendern(daten, nr)
     except seitenbild.Fehler:
         return _json({"error": "seite_nicht_verfuegbar"}, 503)
-    with db.verbindung() as c:
-        z = c.execute("SELECT seiten_geliefert FROM sitzung WHERE id=?", (s["id"],)).fetchone()
-        geliefert = sorted(set(json.loads(z["seiten_geliefert"])) | {nr})
-        c.execute("UPDATE sitzung SET seiten_geliefert=? WHERE id=?", (json.dumps(geliefert), s["id"]))
-    antwort = request_bild(bild)
-    return antwort
+    _stand_aendern(s, dok["rolle"], lambda e: e.update(geliefert=sorted(set(e["geliefert"]) | {nr})))
+    return request_bild(bild)
 
 
 def request_bild(bild: bytes):
@@ -280,13 +310,16 @@ def gelesen():
     if s is None:
         return _ohne_sitzung()
     daten = request.get_json(silent=True)
-    if not isinstance(daten, dict) or daten.get("bestaetigt") is not True or set(daten) - {"bestaetigt"}:
+    if not isinstance(daten, dict) or daten.get("bestaetigt") is not True or set(daten) - {"bestaetigt", "dokument"}:
         return _json({"error": "bestaetigung_fehlt", "meldung": "Bitte ausdrücklich bestätigen."}, 400)
-    _, seiten = _dokument(s)
-    if not set(range(1, seiten + 1)) <= set(s["seiten_geliefert"]):
+    docs = _dokumente(s)
+    dok = _dokument_aus_angabe(docs, daten.get("dokument"))
+    if dok is None:
+        return _json({"error": "dokument_ungueltig"}, 400)
+    if not set(range(1, dok["seiten"] + 1)) <= set(_stand(s, dok["rolle"])["geliefert"]):
         return _json({"error": "seiten_fehlen", "meldung": "Bitte zuerst alle Seiten des Dokuments ansehen."}, 409)
-    with db.verbindung() as c:
-        c.execute("UPDATE sitzung SET gelesen_am=COALESCE(gelesen_am, ?) WHERE id=?", (db.jetzt(), s["id"]))
+    jetzt = db.jetzt()
+    _stand_aendern(s, dok["rolle"], lambda e: e.update(gelesen_am=e.get("gelesen_am") or jetzt))
     return _json({"ok": True})
 
 
@@ -295,7 +328,8 @@ def texte_liefern():
     s = _sitzung()
     if s is None:
         return _ohne_sitzung()
-    if not s["gelesen_am"]:
+    dok, _ = _aktuell(_dokumente(s))
+    if dok is None or not _stand(s, dok["rolle"])["gelesen_am"]:
         return _json({"error": "lesen_fehlt", "meldung": "Bitte zuerst das Dokument lesen."}, 409)
     try:
         t = texte.laden(s["mandant_ref"])
@@ -315,20 +349,29 @@ def unterschrift():
     if s is None:
         return _ohne_sitzung()
     daten = request.get_json(silent=True)
-    erlaubt = {"person", "bild", "ich_unterschreibe", "haken", "text_hash"}
-    if not isinstance(daten, dict) or set(daten) - erlaubt or erlaubt - set(daten):
+    pflicht, optional = {"person", "bild", "ich_unterschreibe"}, {"dokument", "haken", "text_hash"}
+    if not isinstance(daten, dict) or set(daten) - (pflicht | optional) or pflicht - set(daten):
         return _json({"error": "eingabe_ungueltig", "meldung": "Die Eingabe ist ungültig."}, 400)
-    if not s["gelesen_am"]:
+    docs = _dokumente(s)
+    ziel = dokumente.aufloesen(docs, daten.get("dokument"))
+    if ziel is None:
+        return _json({"error": "dokument_ungueltig", "meldung": "Das Dokument ist ungültig."}, 400)
+    if not _stand(s, ziel["rolle"])["gelesen_am"]:
         return _json({"error": "lesen_fehlt", "meldung": "Bitte zuerst das Dokument lesen."}, 409)
-    if not s["texte_angezeigt_am"]:
-        return _json({"error": "texte_fehlen", "meldung": "Bitte zuerst die Datenschutzinformation lesen."}, 409)
-    if daten["haken"] is not True or daten["ich_unterschreibe"] is not True:
-        return _json({"error": "zustimmung_fehlt", "meldung": "Bitte Zustimmung und Unterschrift ausdrücklich bestätigen."}, 400)
-    if not isinstance(daten["text_hash"], str) or daten["text_hash"] != s["texte_hash"]:
-        return _json({"error": "text_geaendert", "meldung": "Die Texte haben sich geändert. Bitte lesen Sie sie erneut."}, 409)
     person = daten["person"]
     if isinstance(person, bool) or person not in (1, 2) or person > s["personen"]:
         return _json({"error": "person_ungueltig"}, 400)
+    with db.verbindung() as c:
+        zustimmung_noetig = dokumente.zustimmung_fehlt(c, s["mandant_ref"], s["vorgang_id"], person)
+    if zustimmung_noetig:                                          # Datenschutzinformation und Haken: einmal je Person und Vorgang
+        if not s["texte_angezeigt_am"]:
+            return _json({"error": "texte_fehlen", "meldung": "Bitte zuerst die Datenschutzinformation lesen."}, 409)
+        if daten.get("haken") is not True or daten["ich_unterschreibe"] is not True:
+            return _json({"error": "zustimmung_fehlt", "meldung": "Bitte Zustimmung und Unterschrift ausdrücklich bestätigen."}, 400)
+        if not isinstance(daten.get("text_hash"), str) or daten["text_hash"] != s["texte_hash"]:
+            return _json({"error": "text_geaendert", "meldung": "Die Texte haben sich geändert. Bitte lesen Sie sie erneut."}, 409)
+    elif daten["ich_unterschreibe"] is not True:
+        return _json({"error": "zustimmung_fehlt", "meldung": "Bitte Zustimmung und Unterschrift ausdrücklich bestätigen."}, 400)
     try:
         png = unterschrift_bild.pruefen(daten["bild"])
     except unterschrift_bild.Ungueltig as u:
@@ -336,27 +379,39 @@ def unterschrift():
     ip = client_ip() if config.ip_speicherung() == "voll" else kuerze_ip(client_ip())
     jetzt = db.jetzt()
     with db.verbindung() as c:
-        fertig = _unterschriebene(c, s)
-        if person in fertig:
+        docs = dokumente.mit_stand(c, s["mandant_ref"], s["vorgang_id"], dokumente.liste(s["mandant_ref"], s["vorgang_id"], s["personen"]))
+        ziel = next(d for d in docs if d["rolle"] == ziel["rolle"])
+        dran, dran_person = dokumente.naechste(docs)
+        if dran is None or person in ziel["unterschrieben"] or ziel["fertig"]:
             return _json({"error": "schon_unterschrieben"}, 409)
-        if person != len(fertig) + 1:
+        if ziel["rolle"] != dran["rolle"]:
+            return _json({"error": "dokument_nicht_dran", "meldung": "Bitte zuerst das vorherige Dokument unterschreiben."}, 409)
+        if person != dran_person:
             return _json({"error": "reihenfolge", "meldung": "Bitte der Reihe nach unterschreiben."}, 409)
-        c.execute("INSERT INTO unterschrift(vorgang_id, mandant_ref, person, bild, bild_sha256, zeit_texte_angezeigt, zeit_unterschrift, text_kennung, text_hash, haken, klick, ip, geraet) "
-                  "VALUES (?,?,?,?,?,?,?,?,?,1,1,?,?)",
-                  (s["vorgang_id"], s["mandant_ref"], person, png, hashlib.sha256(png).hexdigest(), s["texte_angezeigt_am"], jetzt, s["texte_kennung"], s["texte_hash"], ip,
+        if zustimmung_noetig:
+            zeit_texte, kennung, text_hash, uebernommen = s["texte_angezeigt_am"], s["texte_kennung"], s["texte_hash"], 0
+        else:                                                      # Zustimmung stammt aus der ersten Unterschrift dieser Person im Vorgang (im Nachweis vermerkt)
+            erste = c.execute("SELECT zeit_texte_angezeigt, text_kennung, text_hash FROM unterschrift WHERE vorgang_id=? AND mandant_ref=? AND person=? ORDER BY id LIMIT 1",
+                              (s["vorgang_id"], s["mandant_ref"], person)).fetchone()
+            zeit_texte, kennung, text_hash, uebernommen = erste["zeit_texte_angezeigt"], erste["text_kennung"], erste["text_hash"], 1
+        c.execute("INSERT INTO unterschrift(vorgang_id, mandant_ref, person, dokument_rolle, haken_uebernommen, bild, bild_sha256, zeit_texte_angezeigt, zeit_unterschrift, text_kennung, text_hash, haken, klick, ip, geraet) "
+                  "VALUES (?,?,?,?,?,?,?,?,?,?,?,1,1,?,?)",
+                  (s["vorgang_id"], s["mandant_ref"], person, ziel["rolle"], uebernommen, png, hashlib.sha256(png).hexdigest(), zeit_texte, jetzt, kennung, text_hash, ip,
                    geraet_kennung(request.headers.get("User-Agent", ""))))
-        if person == s["personen"]:
+        docs = dokumente.mit_stand(c, s["mandant_ref"], s["vorgang_id"], docs)
+        letzte = all(d["fertig"] for d in docs)
+        if letzte:
             c.execute("UPDATE vorgang SET status='unterschrieben', unterschrieben_am=? WHERE id=? AND mandant_ref=?", (jetzt, s["vorgang_id"], s["mandant_ref"]))
             c.execute("UPDATE link SET verbraucht_am=? WHERE id=?", (jetzt, s["link_id"]))
             db.token_entziehen(c, vorgang_id=s["vorgang_id"])      # wiederherstellbares Token sofort löschen (nur der Hash bleibt)
             c.execute("DELETE FROM sitzung WHERE link_id=?", (s["link_id"],))
             c.execute("DELETE FROM erinnerung WHERE vorgang_id=? AND mandant_ref=? AND gesendet_am IS NULL", (s["vorgang_id"], s["mandant_ref"]))
             _audit(c, s["mandant_ref"], "unterschrieben", "vorgang=%d" % s["vorgang_id"])
-            letzte = True
         else:
-            # nächste Person: Haken und Text müssen für sie erneut bestätigt werden
+            # nächste Unterschrift: Texte und Haken sind für die nächste Person nur zu bestätigen, wenn sie noch nichts unterschrieben hat (einmal je Person und Vorgang)
             c.execute("UPDATE sitzung SET texte_angezeigt_am=NULL, texte_kennung=NULL, texte_hash=NULL WHERE id=?", (s["id"],))
-            letzte = False
+            danach, danach_person = dokumente.naechste(docs)
+            dokument_fertig = next(d for d in docs if d["rolle"] == ziel["rolle"])["fertig"]
     if letzte:
         # Nach dem Commit: Einbetten und Nachweisprotokoll. Scheitert das, bleibt der Vorgang 'unterschrieben' und der Hintergrund-Job holt es nach.
         try:
@@ -366,7 +421,7 @@ def unterschrift():
         antwort, st = _json({"fertig": True})
         antwort.delete_cookie(COOKIE, path="/api/v1/zugang")
         return antwort, st
-    return _json({"fertig": False, "naechste_person": person + 1})
+    return _json({"fertig": False, "dokument_fertig": dokument_fertig, "naechste": {"dokument": danach["rolle"], "person": danach_person}, "naechste_person": danach_person})
 
 
 @bp.post("/abmelden")

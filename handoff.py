@@ -9,6 +9,7 @@ Sicherheit und Datenschutz (alles entscheidet der Server):
 - Begrenzung: höchstens 10 neue Übergaben je Vorgang und Stunde, höchstens 30 Handy-Anfragen je Adresse in 10 Minuten; ein aktiver Eintrag je Vorgang + Person (neu ersetzt alt).
 - Unbekannte, abgelaufene, benutzte und gesperrte Token antworten gleich (404 link_ungueltig)."""
 import base64
+import json
 import secrets
 import threading
 import time
@@ -18,6 +19,7 @@ from flask import Blueprint, jsonify, request
 
 import config
 import db
+import dokumente
 import qr
 import schluessel
 import unterschrift_bild
@@ -90,16 +92,24 @@ def _sitzung_zu(sitzung_id: int):
     if s is None:
         return None
     s = dict(s)
+    s["dok_stand"] = json.loads(s["dok_stand"] or "{}")
     jetzt = _zeit(_jetzt())
     if s["laeuft_ab"] <= jetzt or s["l_ab"] <= jetzt or s["l_gesperrt"] or s["l_verbraucht"] or s["vstatus"] not in LINK_STATI or s["personen"] not in (1, 2):
         return None
     return s
 
 
-def _naechste_person(s: dict) -> int | None:
+def _dokumente(s: dict) -> list:
+    liste = dokumente.liste(s["mandant_ref"], s["vorgang_id"], s["personen"])
     with db.verbindung() as c:
-        fertig = [z["person"] for z in c.execute("SELECT person FROM unterschrift WHERE vorgang_id=? AND mandant_ref=? ORDER BY person", (s["vorgang_id"], s["mandant_ref"]))]
-    return len(fertig) + 1 if len(fertig) < s["personen"] else None
+        return dokumente.mit_stand(c, s["mandant_ref"], s["vorgang_id"], liste)
+
+
+def _naechste(s: dict):
+    """((Dokument, Person), alle Dokumente): wer als Nächstes unterschreibt."""
+    docs = _dokumente(s)
+    dok, person = dokumente.naechste(docs)
+    return dok, person, docs
 
 
 def _zeile_per_id(handoff_id, sitzung_id: int):
@@ -138,12 +148,19 @@ def _computer(f):
 @_computer
 def erzeugen(s):
     daten = request.get_json(silent=True)
-    if not isinstance(daten, dict) or set(daten) != {"person"}:
+    if not isinstance(daten, dict) or "person" not in daten or set(daten) - {"person", "dokument"}:
         return _json({"error": "eingabe_ungueltig", "meldung": "Die Eingabe ist ungültig."}, 400)
     person = daten["person"]
     if isinstance(person, bool) or person not in (1, 2) or person > s["personen"]:
         return _json({"error": "person_ungueltig"}, 400)
-    if not s["gelesen_am"] or not s["texte_angezeigt_am"] or person != _naechste_person(s):
+    dran, dran_person, docs = _naechste(s)
+    ziel = dokumente.aufloesen(docs, daten.get("dokument"))
+    if ziel is None:
+        return _json({"error": "dokument_ungueltig", "meldung": "Das Dokument ist ungültig."}, 400)
+    with db.verbindung() as c:
+        zustimmung_noetig = dokumente.zustimmung_fehlt(c, s["mandant_ref"], s["vorgang_id"], person)
+    gelesen = (s["dok_stand"].get(ziel["rolle"]) or {}).get("gelesen_am")
+    if not gelesen or (zustimmung_noetig and not s["texte_angezeigt_am"]) or dran is None or ziel["rolle"] != dran["rolle"] or person != dran_person:
         return _json({"error": "schritt_falsch", "meldung": "Die Übergabe ist erst im Schritt Unterschrift und nur für die nächste Person möglich."}, 409)
     basis = config.basis_url()
     if basis is None or config.hauptschluessel() is None:
@@ -157,8 +174,8 @@ def erzeugen(s):
     handoff_id = secrets.token_hex(12)
     with db.verbindung() as c:
         c.execute("DELETE FROM handoff WHERE vorgang_id=? AND mandant_ref=? AND person=?", (s["vorgang_id"], s["mandant_ref"], person))        # ein aktiver Eintrag je Person
-        c.execute("INSERT INTO handoff(handoff_id, token_hash, sitzung_id, vorgang_id, mandant_ref, person, status, erstellt, laeuft_ab) VALUES (?,?,?,?,?,?, 'wartet', ?, ?)",
-                  (handoff_id, token_hash, s["id"], s["vorgang_id"], s["mandant_ref"], person, _zeit(jetzt), _zeit(jetzt + timedelta(seconds=TTL_SEKUNDEN))))
+        c.execute("INSERT INTO handoff(handoff_id, token_hash, sitzung_id, vorgang_id, mandant_ref, person, dokument_rolle, status, erstellt, laeuft_ab) VALUES (?,?,?,?,?,?,?, 'wartet', ?, ?)",
+                  (handoff_id, token_hash, s["id"], s["vorgang_id"], s["mandant_ref"], person, ziel["rolle"], _zeit(jetzt), _zeit(jetzt + timedelta(seconds=TTL_SEKUNDEN))))
         c.execute("INSERT INTO handoff_log(vorgang_id, zeit) VALUES (?,?)", (s["vorgang_id"], _zeit(jetzt)))
     _audit(s["mandant_ref"], "handoff_erzeugt", s["vorgang_id"])
     url = "%s/h#%s" % (basis, token)
@@ -214,9 +231,13 @@ def _handy_zeile(token):
         return None
     z = dict(z)
     s = _sitzung_zu(z["sitzung_id"])
-    if s is None or _naechste_person(s) != z["person"]:
+    if s is None:
+        return None
+    dran, dran_person, docs = _naechste(s)
+    if dran is None or dran_person != z["person"] or dran["rolle"] != z["dokument_rolle"]:
         return None
     z["personen"] = s["personen"]
+    z["dokument"] = {"rolle": dran["rolle"], "titel": dran["titel"], "nr": docs.index(dran) + 1, "von": len(docs)}
     return z
 
 
@@ -247,7 +268,7 @@ def handy_info():
     if z["status"] == "wartet":
         with db.verbindung() as c:
             c.execute("UPDATE handoff SET status='verbunden' WHERE id=? AND status='wartet'", (z["id"],))
-    return _json({"person": z["person"], "personen": z["personen"], "status": "verbunden"})
+    return _json({"person": z["person"], "personen": z["personen"], "dokument": z["dokument"], "status": "verbunden"})
 
 
 @bp_handy.post("/unterschrift")

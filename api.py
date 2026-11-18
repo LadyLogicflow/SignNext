@@ -6,6 +6,7 @@ from flask import Blueprint, g, jsonify, request
 
 import config
 import db
+import dokumente
 import loeschen
 import mail_zugang
 import pdf_eingang
@@ -32,7 +33,14 @@ def me():
 @bp.get("/vorgaenge")
 @anmeldung_pflicht()
 def vorgaenge():
-    return jsonify({"vorgaenge": db.vorgaenge_liste(g.nutzer["mandant_ref"], ohne_geloeschte=True), "status_texte": STATUS_TEXTE})
+    mandant = g.nutzer["mandant_ref"]
+    liste = db.vorgaenge_liste(mandant, ohne_geloeschte=True)
+    with db.verbindung() as c:
+        for e in liste:                                                      # Fortschritt je Dokument (Einzel-Signatur): Zahlen, kein Personenbezug
+            docs = dokumente.mit_stand(c, mandant, e["id"], dokumente.liste(mandant, e["id"], e["personen"]))
+            e["dokumente_gesamt"] = len(docs)
+            e["dokumente_fertig"] = sum(1 for d in docs if d["fertig"])
+    return jsonify({"vorgaenge": liste, "status_texte": STATUS_TEXTE})
 
 
 @bp.delete("/vorgaenge/<int:vorgang_id>")
@@ -63,6 +71,9 @@ def vorgang(vorgang_id):
     audit("vorgang_gelesen", "id=%d" % vorgang_id)
     v["link_status"] = db.link_status(g.nutzer["mandant_ref"], vorgang_id)
     v["link_laeuft_ab"] = db.link_laeuft_ab(g.nutzer["mandant_ref"], vorgang_id)
+    with db.verbindung() as c:
+        docs = dokumente.mit_stand(c, g.nutzer["mandant_ref"], vorgang_id, dokumente.liste(g.nutzer["mandant_ref"], vorgang_id, v["personen"]))
+    v["dokumente_fortschritt"] = [{k: d[k] for k in ("rolle", "titel", "erforderlich", "unterschrieben", "fertig")} for d in docs]
     v["dokumente"] = [{k: d[k] for k in ("id", "rolle", "seiten", "groesse", "sha256", "stellen")} for d in db.dokumente_liste(g.nutzer["mandant_ref"], vorgang_id)]
     return jsonify(v)
 
@@ -248,15 +259,18 @@ def vorgang_versenden(vorgang_id):
 @bp.get("/vorgaenge/<int:vorgang_id>/dokument")
 @anmeldung_pflicht()
 def vorgang_dokument(vorgang_id):
-    """Das zusammengeführte PDF (sonst das einzelne Dokument) zum Ansehen in der Prüfansicht. Nur eigener Mandant."""
+    """Ein Dokument des Vorgangs (?dokument=B|A, sonst das erste) zum Ansehen in der Prüfansicht. Nur eigener Mandant."""
     mandant = g.nutzer["mandant_ref"]
     if db.vorgang_lesen(mandant, vorgang_id) is None:
         return jsonify({"error": "nicht_gefunden"}), 404
-    daten = None
-    for rolle in ("M", "B", "A", "S"):
-        daten = db.dokument_bytes(mandant, vorgang_id, rolle)
-        if daten is not None:
-            break
+    docs = dokumente.rollen(mandant, vorgang_id)
+    angabe = request.args.get("dokument")
+    rolle = docs[0] if angabe is None and docs else angabe
+    if rolle not in docs:
+        return jsonify({"error": "nicht_gefunden"}), 404
+    daten = db.dokument_bytes(mandant, vorgang_id, rolle)                       # Original; nach dem Abschluss das unterschriebene Dokument
+    if daten is None:
+        daten = db.dokument_bytes(mandant, vorgang_id, dokumente.ergebnis_rolle("dokument", rolle))
     if daten is None:
         return jsonify({"error": "nicht_gefunden"}), 404
     audit("dokument_gelesen", "id=%d" % vorgang_id)

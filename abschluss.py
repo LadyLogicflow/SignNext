@@ -20,10 +20,11 @@ from reportlab.pdfgen import canvas
 import abgleich
 import config
 import db
+import dokumente
 import texte
 
 LOG = logging.getLogger("signnext")
-ABSCHLUSS_ROLLEN = ("S", "N")
+ABSCHLUSS_ROLLEN = ("S", "N", "S_A", "S_B", "N_A", "N_B")       # S/N: zusammengeführtes Dokument älterer Vorgänge; S_<Rolle>/N_<Rolle>: je Dokument
 ORIGINAL_ROLLEN = ("A", "B", "M")
 
 
@@ -36,15 +37,13 @@ from berlinzeit import berlin  # noqa: E402,F401  (Anzeige in deutscher Zeit; li
 
 # --- Einbetten -------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-def _quelle(mandant_ref: str, vorgang_id: int) -> tuple[str, bytes, list]:
+def _quelle(mandant_ref: str, vorgang_id: int, rolle: str) -> tuple[bytes, list]:
+    """(PDF, Stellen) des Originals dieses Dokuments."""
     zeilen = {d["rolle"]: d for d in db.dokumente_liste(mandant_ref, vorgang_id)}
-    for rolle in ("M", "B", "A"):
-        if rolle in zeilen:
-            daten = db.dokument_bytes(mandant_ref, vorgang_id, rolle)
-            if daten is None:
-                raise Fehler("quelle_fehlt")
-            return rolle, daten, zeilen[rolle]["stellen"]
-    raise Fehler("quelle_fehlt")
+    daten = db.dokument_bytes(mandant_ref, vorgang_id, rolle) if rolle in zeilen else None
+    if daten is None:
+        raise Fehler("quelle_fehlt")
+    return daten, zeilen[rolle]["stellen"]
 
 
 def einbetten(daten: bytes, stellen: list, personen: int, bilder: dict) -> bytes:
@@ -86,7 +85,7 @@ def einbetten(daten: bytes, stellen: list, personen: int, bilder: dict) -> bytes
 
 # --- Nachweisprotokoll -----------------------------------------------------------------------------------------------------------------------------------------------------------
 
-def nachweis_pdf(vorgang_id: int, hash_vorher: str, hash_nachher: str, unterschriften: list, abgeschlossen_am: str, textkennung_frei: bool) -> bytes:
+def nachweis_pdf(vorgang_id: int, hash_vorher: str, hash_nachher: str, unterschriften: list, abgeschlossen_am: str, textkennung_frei: bool, dokument_titel: str | None = None) -> bytes:
     """Eigenes PDF: Ablauf, Zeitpunkte (MEZ/MESZ), Prüfsummen. Keine Namen, kein Geburtsdatum, keine E-Mail-Adresse."""
     puffer = io.BytesIO()
     c = canvas.Canvas(puffer, pagesize=(595.28, 841.89))
@@ -117,6 +116,8 @@ def nachweis_pdf(vorgang_id: int, hash_vorher: str, hash_nachher: str, unterschr
 
     zeile("Nachweisprotokoll zur Unterschrift", 15, "Helvetica-Bold", 22)
     zeile("Vorgang Nr. %d" % int(vorgang_id), 11, "Helvetica-Bold", 16)
+    if dokument_titel:
+        zeile("Dokument: %s" % dokument_titel, 11, "Helvetica-Bold", 16)
     zeile("Abgeschlossen am: %s" % berlin(abgeschlossen_am))
     zeile("")
     zeile("Prüfsummen (SHA-256) des Dokuments", 10.5, "Helvetica-Bold", 16)
@@ -127,9 +128,13 @@ def nachweis_pdf(vorgang_id: int, hash_vorher: str, hash_nachher: str, unterschr
     zeile("")
     for u in unterschriften:
         zeile("Unterschrift von Person %d" % u["person"], 10.5, "Helvetica-Bold", 16)
-        zeile("Texte (Datenschutzinformation) angezeigt: %s" % berlin(u["zeit_texte_angezeigt"]))
-        zeile("Unterschrift geleistet: %s" % berlin(u["zeit_unterschrift"]))
-        zeile("Zustimmung per Haken und eigenem Klick bestätigt: %s" % ("ja" if u["haken"] and u["klick"] else "nein"))
+        if u.get("haken_uebernommen"):
+            zeile("Datenschutzinformation und Zustimmung wurden in der ersten Unterschrift dieser Person in diesem Vorgang bestätigt (am %s) und für dieses Dokument übernommen." % berlin(u["zeit_texte_angezeigt"]))
+            zeile("Unterschrift geleistet: %s" % berlin(u["zeit_unterschrift"]))
+        else:
+            zeile("Texte (Datenschutzinformation) angezeigt: %s" % berlin(u["zeit_texte_angezeigt"]))
+            zeile("Unterschrift geleistet: %s" % berlin(u["zeit_unterschrift"]))
+            zeile("Zustimmung per Haken und eigenem Klick bestätigt: %s" % ("ja" if u["haken"] and u["klick"] else "nein"))
         zeile("Textfassung (Kennung): %s" % u["text_kennung"])
         zeile("Prüfsumme der angezeigten Texte:")
         zeile(u["text_hash"], 8, "Courier", 12, 66)
@@ -204,20 +209,28 @@ def _abschliessen(mandant_ref: str, vorgang_id: int) -> None:
     v = db.vorgang_intern(mandant_ref, vorgang_id)
     if v is None or v["personen"] not in (1, 2):
         raise Fehler("vorgang_unvollstaendig")
+    docs = dokumente.liste(mandant_ref, vorgang_id, v["personen"])
+    if not docs:
+        raise Fehler("quelle_fehlt")
     with db.verbindung() as c:
-        zeilen = [dict(z) for z in c.execute("SELECT * FROM unterschrift WHERE mandant_ref=? AND vorgang_id=? ORDER BY person", (mandant_ref, int(vorgang_id)))]
-    if [u["person"] for u in zeilen] != list(range(1, v["personen"] + 1)):
-        raise Fehler("unterschriften_fehlen")
+        alle = [dict(z) for z in c.execute("SELECT * FROM unterschrift WHERE mandant_ref=? AND vorgang_id=? ORDER BY dokument_rolle, person", (mandant_ref, int(vorgang_id)))]
     _dateien_der_rollen_loeschen(mandant_ref, vorgang_id, ABSCHLUSS_ROLLEN)       # Reste eines früheren, abgebrochenen Versuchs
-    _rolle, quelle, stellen = _quelle(mandant_ref, vorgang_id)
-    hash_vorher = hashlib.sha256(quelle).hexdigest()
-    fertig = einbetten(quelle, stellen, v["personen"], {u["person"]: bytes(u["bild"]) for u in zeilen})
-    hash_nachher = hashlib.sha256(fertig).hexdigest()
     jetzt = db.jetzt()
-    protokoll = nachweis_pdf(vorgang_id, hash_vorher, hash_nachher, zeilen, jetzt, all(texte.FREIGABE_OFFEN not in (u["text_kennung"] or "") for u in zeilen))
-    seiten = len(PdfReader(io.BytesIO(fertig)).pages)
-    db.dokument_speichern(mandant_ref, vorgang_id, "S", fertig, hash_nachher, seiten, [])
-    db.dokument_speichern(mandant_ref, vorgang_id, "N", protokoll, hashlib.sha256(protokoll).hexdigest(), len(PdfReader(io.BytesIO(protokoll)).pages), [])
+    ergebnisse = []                                                                # erst alle Dokumente berechnen, dann ablegen
+    for d in docs:
+        zeilen = [u for u in alle if u["dokument_rolle"] == d["rolle"]]
+        if [u["person"] for u in zeilen] != d["erforderlich"]:
+            raise Fehler("unterschriften_fehlen")
+        quelle, stellen = _quelle(mandant_ref, vorgang_id, d["rolle"])
+        hash_vorher = hashlib.sha256(quelle).hexdigest()
+        fertig = einbetten(quelle, stellen, v["personen"], {u["person"]: bytes(u["bild"]) for u in zeilen})
+        hash_nachher = hashlib.sha256(fertig).hexdigest()
+        titel = None if d["rolle"] == "M" else d["titel"]
+        protokoll = nachweis_pdf(vorgang_id, hash_vorher, hash_nachher, zeilen, jetzt, all(texte.FREIGABE_OFFEN not in (u["text_kennung"] or "") for u in zeilen), titel)
+        ergebnisse.append((d["rolle"], fertig, hash_nachher, protokoll))
+    for rolle, fertig, hash_nachher, protokoll in ergebnisse:
+        db.dokument_speichern(mandant_ref, vorgang_id, dokumente.ergebnis_rolle("dokument", rolle), fertig, hash_nachher, len(PdfReader(io.BytesIO(fertig)).pages), [])
+        db.dokument_speichern(mandant_ref, vorgang_id, dokumente.ergebnis_rolle("nachweis", rolle), protokoll, hashlib.sha256(protokoll).hexdigest(), len(PdfReader(io.BytesIO(protokoll)).pages), [])
     einstellung = db.stelle_einstellung_lesen(mandant_ref) or {}
     tage = int(einstellung.get("aufbewahrung_tage") or config.aufbewahrung_standard())
     tage = min(config.AUFBEWAHRUNG_MAX_TAGE, max(config.AUFBEWAHRUNG_MIN_TAGE, tage))
@@ -230,4 +243,3 @@ def _abschliessen(mandant_ref: str, vorgang_id: int) -> None:
         db.token_entziehen(c, vorgang_id=vorgang_id)
         db.audit_in(c, mandant_ref, "system", "abgeschlossen", "vorgang=%d" % int(vorgang_id))
     originale_loeschen(mandant_ref, vorgang_id)
-

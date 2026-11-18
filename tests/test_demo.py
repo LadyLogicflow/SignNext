@@ -104,12 +104,13 @@ class TestDemoAblauf(DemoBasis):
         self.vid, self.token = vid, token
         self.assertEqual(self.pruefen().status_code, 200)
         self.lesen()
-        self.assertEqual(self.sign(1, self.texte_holen()["hash"]).status_code, 200)
-        self.assertEqual(self.sign(2, self.texte_holen()["hash"], bild=uri(png_bytes(300, 100))).get_json(), {"fertig": True})
+        self.assertEqual(self.alles_unterschreiben().get_json(), {"fertig": True})
         self.assertEqual(db.vorgang_intern("demo", vid)["status"], "abgeschlossen")
         d = demo.download_link_erzeugen(vid, "demo")
         dtoken = re.search(r"/d#(\S+)$", d["link"]).group(1)
         r = self.m.post("/api/v1/download", json={"token": dtoken, "code": d["code"]}, headers=dict(ORIGIN), base_url=BASIS)
+        self.assertEqual(r.get_json(), {"dokumente": [{"rolle": "B", "titel": "Anschreiben"}, {"rolle": "A", "titel": "Protokoll"}]})   # zwei Dokumente: erst wählen
+        r = self.m.post("/api/v1/download", json={"token": dtoken, "code": d["code"], "dokument": "A"}, headers=dict(ORIGIN), base_url=BASIS)
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.get_data().startswith(b"%PDF"))
 

@@ -228,8 +228,7 @@ class TestSperre(Z):
         self.assertEqual(r.status_code, 200)                                         # neuer Link: nicht gesperrt
         self.einloggen_neu()
         self.lesen()
-        self.assertEqual(self.sign(1, self.texte_holen()["hash"]).status_code, 200)
-        self.assertEqual(self.sign(2, self.texte_holen()["hash"]).get_json(), {"fertig": True})
+        self.assertEqual(self.alles_unterschreiben().get_json(), {"fertig": True})
         self.assertEqual(db.vorgang_intern("1001", self.vid)["status"], "abgeschlossen")
         jobs.lauf(jetzt())
         self.assertEqual(self.info()["genutzt"], 1)

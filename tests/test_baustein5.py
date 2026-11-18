@@ -34,16 +34,11 @@ class B5(ZugangBasis):
         """Versendet, öffnet über den Link und unterschreibt alle Personen. Liefert die Vorgangsnummer."""
         self.starten(**kw)
         self.einloggen()
-        self.lesen_n(SEITEN)
-        h = self.texte_holen()["hash"]
-        self.assertEqual(self.sign(1, h).status_code, 200)
-        if db.vorgang_intern("1001", self.vid)["personen"] == 2:
-            self.assertEqual(self.sign(2, self.texte_holen()["hash"], bild=uri(png_bytes(300, 100))).status_code, 200)
+        self.alles_unterschreiben()
         return self.vid
 
-    def lesen_n(self, n):
-        self.alle_seiten(n)
-        self.assertEqual(self.post("/gelesen", {"bestaetigt": True}).status_code, 200)
+    def lesen_n(self, n=None):
+        self.lesen()
 
     def mails(self, an):
         out = []
@@ -67,50 +62,55 @@ class B5(ZugangBasis):
         with db.verbindung() as c:
             return [dict(z) for z in c.execute("SELECT * FROM loeschprotokoll ORDER BY id")]
 
-    def hole_download(self, token, kopf=None, ip="198.51.100.7", code=CODE):
+    def hole_download(self, token, kopf=None, ip="198.51.100.7", code=CODE, dokument="B"):
+        """Mitglied-Download; bei zwei Dokumenten wählt ``dokument`` das Anschreiben ('B') oder das Protokoll ('A'); ``dokument=False`` lässt die Angabe weg."""
         h = dict(ORIGIN)
         h.update(kopf or {})
-        return self.m.post("/api/v1/download", json={"token": token, "code": code}, headers=h, base_url=BASIS, environ_overrides={"REMOTE_ADDR": ip})
+        body = {"token": token, "code": code}
+        if dokument is not False:
+            body["dokument"] = dokument
+        return self.m.post("/api/v1/download", json=body, headers=h, base_url=BASIS, environ_overrides={"REMOTE_ADDR": ip})
 
 
 # ======================================================================================================== Abschluss
 
 class TestAbschluss(B5):
+    def bilder_je_seite(self, rolle):
+        leser = PdfReader(io.BytesIO(db.dokument_bytes("1001", self.vid, "S_" + rolle)))
+        return len(leser.pages), {i + 1: len(p.images) for i, p in enumerate(leser.pages) if len(p.images)}
+
     def test_ehepaar_wird_abgeschlossen(self):
         self.starten()
-        vorher = db.dokument_bytes("1001", self.vid, "M")
+        vorher = {r: db.dokument_bytes("1001", self.vid, r) for r in ("B", "A")}
+        self.assertIsNone(db.dokument_bytes("1001", self.vid, "M"))                       # kein zusammengeführtes Dokument mehr
         self.einloggen()
-        self.lesen_n(SEITEN)
-        self.assertEqual(self.sign(1, self.texte_holen()["hash"]).status_code, 200)
-        self.assertEqual(self.sign(2, self.texte_holen()["hash"], bild=uri(png_bytes(300, 100))).get_json(), {"fertig": True})
+        self.assertEqual(self.alles_unterschreiben().get_json(), {"fertig": True})
         v = self.vorgang()
         self.assertEqual(v["status"], "abgeschlossen")
         self.assertTrue(v["unterschrieben_am"] and v["abgeschlossen_am"] and v["aufbewahrung_bis"])
         self.assertEqual(v["aufbewahrung_tage"], config.aufbewahrung_standard())
-        self.assertEqual(self.rollen(), ["N", "S"])                              # Originale (A, B, M) sind weg
-        self.assertEqual(len(self.dateien()), 2)
-        fertig = db.dokument_bytes("1001", self.vid, "S")
-        leser = PdfReader(io.BytesIO(fertig))
-        self.assertEqual(len(leser.pages), SEITEN)
-        self.assertEqual({i + 1: len(p.images) for i, p in enumerate(leser.pages) if len(p.images)}, {1: 2, 4: 2, 15: 2})
-        self.assertEqual(sum(len(p.images) for p in PdfReader(io.BytesIO(vorher)).pages), 0)
-        self.assertNotEqual(fertig, vorher)
-        # Die Texte bleiben unverändert (nur Overlay)
-        self.assertEqual([p.extract_text() for p in leser.pages], [p.extract_text() for p in PdfReader(io.BytesIO(vorher)).pages])
+        self.assertEqual(self.rollen(), ["N_A", "N_B", "S_A", "S_B"])                    # Originale (A, B) sind weg, je Dokument Ergebnis und Nachweis
+        self.assertEqual(len(self.dateien()), 4)
+        for rolle, seiten, erwartet in (("B", 4, {1: 2, 4: 2}), ("A", 12, {11: 2})):     # Seiten mit Unterschriftsbildern
+            fertig = db.dokument_bytes("1001", self.vid, "S_" + rolle)
+            leser = PdfReader(io.BytesIO(fertig))
+            self.assertEqual(self.bilder_je_seite(rolle), (seiten, erwartet), rolle)
+            self.assertEqual(sum(len(p.images) for p in PdfReader(io.BytesIO(vorher[rolle])).pages), 0)
+            self.assertNotEqual(fertig, vorher[rolle])
+            # Die Texte bleiben unverändert (nur Overlay)
+            self.assertEqual([p.extract_text() for p in leser.pages], [p.extract_text() for p in PdfReader(io.BytesIO(vorher[rolle])).pages])
 
     def test_einzelperson_nur_eine_stelle_je_block(self):
         self.unterschreiben(personen=1)
-        leser = PdfReader(io.BytesIO(db.dokument_bytes("1001", self.vid, "S")))
-        self.assertEqual({i + 1: len(p.images) for i, p in enumerate(leser.pages) if len(p.images)}, {1: 1, 4: 1, 15: 1})
+        self.assertEqual(self.bilder_je_seite("B"), (4, {1: 1, 4: 1}))
+        self.assertEqual(self.bilder_je_seite("A"), (12, {11: 1}))
 
     def test_unterschrift_liegt_in_der_stelle(self):
         self.starten()
-        stellen = [s for d in db.dokumente_liste("1001", self.vid) if d["rolle"] == "M" for s in d["stellen"]]
+        stellen = [s for d in db.dokumente_liste("1001", self.vid) if d["rolle"] == "B" for s in d["stellen"]]
         self.einloggen()
-        self.lesen_n(SEITEN)
-        self.sign(1, self.texte_holen()["hash"])
-        self.sign(2, self.texte_holen()["hash"], bild=uri(png_bytes(300, 100)))
-        leser = PdfReader(io.BytesIO(db.dokument_bytes("1001", self.vid, "S")))
+        self.alles_unterschreiben(bild=uri(png_bytes()))
+        leser = PdfReader(io.BytesIO(db.dokument_bytes("1001", self.vid, "S_B")))
         s1 = [s for s in stellen if s["seite"] == 1 and s["person"] == 1][0]
         bild = leser.pages[0].images[0]
         self.assertTrue(bild.data.startswith(b"\x89PNG") or len(bild.data) > 100)
@@ -127,30 +127,37 @@ class TestAbschluss(B5):
 
     def test_nachweisprotokoll(self):
         self.starten()
-        vorher = db.dokument_bytes("1001", self.vid, "M")
+        vorher = {r: db.dokument_bytes("1001", self.vid, r) for r in ("B", "A")}
         self.einloggen()
-        self.lesen_n(SEITEN)
-        self.sign(1, self.texte_holen()["hash"])
-        self.sign(2, self.texte_holen()["hash"])
+        self.alles_unterschreiben()
         import hashlib
-        nachweis = db.dokument_bytes("1001", self.vid, "N")
-        text = "\n".join(p.extract_text() for p in PdfReader(io.BytesIO(nachweis)).pages)
-        self.assertIn("Vorgang Nr. %d" % self.vid, text)
-        self.assertIn(hashlib.sha256(vorher).hexdigest(), text)                    # Hash vorher
-        self.assertIn(hashlib.sha256(db.dokument_bytes("1001", self.vid, "S")).hexdigest(), text)    # Hash nachher
-        self.assertIn("Unterschrift von Person 1", text)
-        self.assertIn("Unterschrift von Person 2", text)
-        self.assertRegex(text, r"\d\d\.\d\d\.\d{4} \d\d:\d\d:\d\d (MEZ|MESZ)")
-        self.assertIn("nicht kryptografisch signiert", text)
-        self.assertNotIn("noch nicht freigegeben", text)                              # Texte sind freigegeben (catrin 18.11.): kein Vorbehalt im Nachweis
-        self.assertNotIn("Freigabe offen", text)
-        self.assertIn("SignNext-Datenschutzhinweis-Unterschriftsseite-1.0", text)
-        self.assertIn("SignNext-Ausstieg-1.0", text)                                   # die lange Kennung läuft nicht über den Seitenrand (Umbruch)
-        for seite in PdfReader(io.BytesIO(nachweis)).pages:
-            for teil in seite.extract_text().splitlines():
-                self.assertLess(len(teil), 140, teil)
-        for verboten in pdfs.PERSONENDATEN + ("rechtssicher",):
-            self.assertNotIn(verboten, text)
+        texte_je_dokument = {}
+        for rolle, titel in (("B", "Anschreiben"), ("A", "Protokoll")):
+            nachweis = db.dokument_bytes("1001", self.vid, "N_" + rolle)
+            text = texte_je_dokument[rolle] = "\n".join(p.extract_text() for p in PdfReader(io.BytesIO(nachweis)).pages)
+            self.assertIn("Vorgang Nr. %d" % self.vid, text)
+            self.assertIn("Dokument: %s" % titel, text)
+            self.assertIn(hashlib.sha256(vorher[rolle]).hexdigest(), text)                    # Hash vorher
+            self.assertIn(hashlib.sha256(db.dokument_bytes("1001", self.vid, "S_" + rolle)).hexdigest(), text)    # Hash nachher
+            self.assertIn("Unterschrift von Person 1", text)
+            self.assertIn("Unterschrift von Person 2", text)
+            self.assertRegex(text, r"\d\d\.\d\d\.\d{4} \d\d:\d\d:\d\d (MEZ|MESZ)")
+            self.assertIn("nicht kryptografisch signiert", text)
+            self.assertNotIn("noch nicht freigegeben", text)                              # Texte sind freigegeben (catrin 18.11.): kein Vorbehalt im Nachweis
+            self.assertNotIn("Freigabe offen", text)
+            self.assertIn("SignNext-Datenschutzhinweis-Unterschriftsseite-1.0", text)
+            self.assertIn("SignNext-Ausstieg-1.0", text)                                   # die lange Kennung läuft nicht über den Seitenrand (Umbruch)
+            for seite in PdfReader(io.BytesIO(nachweis)).pages:
+                for teil in seite.extract_text().splitlines():
+                    self.assertLess(len(teil), 140, teil)
+            for verboten in pdfs.PERSONENDATEN + ("rechtssicher",):
+                self.assertNotIn(verboten, text)
+        uebernommen = "wurden in der ersten Unterschrift dieser Person in diesem Vorgang bestätigt"
+        glatt = {r: " ".join(t.split()) for r, t in texte_je_dokument.items()}             # Zeilenumbrüche des PDFs ausgleichen
+        self.assertNotIn(uebernommen, glatt["B"])                                          # im Anschreiben (erstes Dokument) wurde zugestimmt
+        self.assertIn("Zustimmung per Haken und eigenem Klick bestätigt: ja", glatt["B"])
+        self.assertEqual(glatt["A"].count(uebernommen), 2)                                 # im Protokoll gilt die Zustimmung aus der ersten Unterschrift (beide Personen)
+        self.assertNotIn("Zustimmung per Haken und eigenem Klick", glatt["A"])
 
     def test_berlin_zeit(self):
         self.assertEqual(abschluss.berlin("2026-11-13T14:05:00Z"), "13.11.2026 15:05:00 MEZ")
@@ -164,7 +171,7 @@ class TestAbschluss(B5):
         self.unterschreiben()
         p = [z for z in self.protokoll() if z["art"] == "originale"]
         self.assertEqual(len(p), 1)
-        self.assertEqual(json.loads(p[0]["zahlen"]), {"dateien": 3})                # A, B, M
+        self.assertEqual(json.loads(p[0]["zahlen"]), {"dateien": 2})                # A, B
         self.assertEqual(p[0]["vorgang_id"], self.vid)
 
     def test_aufbewahrung_je_beratungsstelle(self):
@@ -180,14 +187,14 @@ class TestAbschluss(B5):
         with mock.patch("abschluss.einbetten", side_effect=RuntimeError("kaputt")):
             self.unterschreiben()
             self.assertEqual(self.vorgang()["status"], "abschluss_fehlgeschlagen")
-            self.assertEqual(len(self.rollen()), 3)                                  # nichts gelöscht, Originale noch da
+            self.assertEqual(len(self.rollen()), 2)                                  # nichts gelöscht, Originale (A, B) noch da
             with db.verbindung() as c:                                               # das wiederherstellbare Token ist trotzdem sofort weg
                 self.assertEqual(c.execute("SELECT COUNT(*) FROM link WHERE token_enc IS NOT NULL").fetchone()[0], 0)
         with db.verbindung() as c:
-            self.assertEqual(c.execute("SELECT COUNT(*) FROM unterschrift").fetchone()[0], 2)
+            self.assertEqual(c.execute("SELECT COUNT(*) FROM unterschrift").fetchone()[0], 4)            # 2 Dokumente x 2 Personen
         jobs.lauf(jetzt())
         self.assertEqual(self.vorgang()["status"], "abgeschlossen")
-        self.assertEqual(self.rollen(), ["N", "S"])
+        self.assertEqual(self.rollen(), ["N_A", "N_B", "S_A", "S_B"])
 
     def test_nach_fuenf_fehlversuchen_ist_schluss(self):
         with mock.patch("abschluss.einbetten", side_effect=RuntimeError("kaputt")) as e:
@@ -211,7 +218,7 @@ class TestAbschluss(B5):
         [t.start() for t in ts]
         [t.join() for t in ts]
         self.assertEqual(sorted(ergebnisse), [False, False, False, True])
-        self.assertEqual(self.rollen(), ["N", "S"])
+        self.assertEqual(self.rollen(), ["N_A", "N_B", "S_A", "S_B"])
         self.assertEqual(len([z for z in self.protokoll() if z["art"] == "originale"]), 1)
 
     def test_haengender_abschluss_wird_zurueckgesetzt_und_nachgeholt(self):
@@ -228,18 +235,18 @@ class TestAbschluss(B5):
         with mock.patch("abschluss.originale_loeschen", side_effect=RuntimeError("absturz")):
             self.unterschreiben()
         self.assertEqual(self.vorgang()["status"], "abgeschlossen")
-        self.assertEqual(self.rollen(), ["A", "B", "M", "N", "S"])
+        self.assertEqual(self.rollen(), ["A", "B", "N_A", "N_B", "S_A", "S_B"])
         jobs.lauf(jetzt())                                                           # Aufräumen holt die Originalöschung nach
-        self.assertEqual(self.rollen(), ["N", "S"])
-        self.assertEqual(len(self.dateien()), 2)
+        self.assertEqual(self.rollen(), ["N_A", "N_B", "S_A", "S_B"])
+        self.assertEqual(len(self.dateien()), 4)
 
     def test_einbetten_lehnt_fehlende_stellen_ab(self):
         with self.assertRaises(abschluss.Fehler):
-            abschluss.einbetten(db.dokument_bytes("1001", self.bereit(), "M"), [], 2, {1: b"x", 2: b"y"})
+            abschluss.einbetten(db.dokument_bytes("1001", self.bereit(), "B"), [], 2, {1: b"x", 2: b"y"})
         self.starten()
-        stellen = [s for d in db.dokumente_liste("1001", self.vid) if d["rolle"] == "M" for s in d["stellen"]]
+        stellen = [s for d in db.dokumente_liste("1001", self.vid) if d["rolle"] == "B" for s in d["stellen"]]
         with self.assertRaises(abschluss.Fehler):
-            abschluss.einbetten(db.dokument_bytes("1001", self.vid, "M"), stellen, 2, {1: b"x"})
+            abschluss.einbetten(db.dokument_bytes("1001", self.vid, "B"), stellen, 2, {1: b"x"})
 
     def test_kein_wiederherstellbares_token_nach_abschluss(self):
         self.starten()
@@ -247,9 +254,7 @@ class TestAbschluss(B5):
             self.assertIsNotNone(c.execute("SELECT token_enc FROM link").fetchone()["token_enc"])    # vorher vorhanden
         token = self.token
         self.einloggen()
-        self.lesen_n(SEITEN)
-        self.sign(1, self.texte_holen()["hash"])
-        self.sign(2, self.texte_holen()["hash"])
+        self.alles_unterschreiben()
         with db.verbindung() as c:
             self.assertEqual(c.execute("SELECT COUNT(*) FROM link WHERE token_enc IS NOT NULL").fetchone()[0], 0)
             self.assertEqual(c.execute("SELECT COUNT(*) FROM link").fetchone()[0], 1)         # der Hash bleibt für die Sperrprüfung
@@ -340,11 +345,29 @@ class TestDownload(B5):
             r = self.hole_download(token)
             self.assertEqual(r.status_code, 200, i)
             self.assertTrue(r.get_data().startswith(b"%PDF"))
-        self.assertEqual(r.get_data(), db.dokument_bytes("1001", self.vid, "S"))
+        self.assertEqual(r.get_data(), db.dokument_bytes("1001", self.vid, "S_B"))
         r = self.hole_download(token)
         self.assertEqual((r.status_code, r.get_json()["error"], r.get_json()["gesperrt"]), (401, "angaben_stimmen_nicht", True))          # aufgebraucht, auch mit richtigem Code
         with db.verbindung() as c:
             self.assertEqual([z["zaehler"] for z in c.execute("SELECT zaehler FROM download_log ORDER BY id")], [1, 2, 3])
+
+    def test_zwei_dokumente_einzeln_abrufen(self):
+        self.abgeschlossen()
+        token = self.link_aus_mail()
+        r = self.hole_download(token, dokument=False)                                 # richtiger Code, aber keine Wahl: Liste, kein Abruf gezählt
+        self.assertEqual((r.status_code, r.get_json()), (200, {"dokumente": [{"rolle": "B", "titel": "Anschreiben"}, {"rolle": "A", "titel": "Protokoll"}]}))
+        self.assertNotIn("X-Abruf", r.headers)
+        for ungueltig in ("M", "X", "S_B", "b"):
+            self.assertEqual(self.hole_download(token, dokument=ungueltig).get_json()["dokumente"][0]["rolle"], "B", ungueltig)
+        with db.verbindung() as c:
+            self.assertEqual(c.execute("SELECT abrufe FROM download_link").fetchone()[0], 0)
+        r = self.hole_download(token, dokument="A")
+        self.assertEqual((r.status_code, r.headers["X-Abruf"], r.get_data()), (200, "1", db.dokument_bytes("1001", self.vid, "S_A")))
+        r = self.hole_download(token, dokument="B")
+        self.assertEqual((r.status_code, r.headers["X-Abruf"], r.get_data()), (200, "2", db.dokument_bytes("1001", self.vid, "S_B")))
+        self.assertNotEqual(db.dokument_bytes("1001", self.vid, "S_A"), db.dokument_bytes("1001", self.vid, "S_B"))
+        self.assertEqual(self.hole_download(token, code="99999999", dokument="B").status_code, 401)                 # falscher Code: wie bisher
+        self.assertEqual(self.hole_download(token, code="99999999", dokument=False).status_code, 401)               # auch ohne Wahl kein Hinweis auf die Dokumente
 
     def test_kopfzeilen(self):
         self.abgeschlossen()
@@ -471,7 +494,7 @@ class TestDownload(B5):
 
     def test_download_der_beratungsstelle_hat_keinen_zweiten_faktor(self):
         self.abgeschlossen()
-        self.assertEqual(self.c.get("/api/v1/vorgaenge/%d/download/dokument" % self.vid).status_code, 200)
+        self.assertEqual(self.c.get("/api/v1/vorgaenge/%d/download/dokument?dokument=B" % self.vid).status_code, 200)
 
     def test_beratungsstelle_bekommt_info_nach_abruf_ohne_link(self):
         self.abgeschlossen()
@@ -500,13 +523,16 @@ class TestDownload(B5):
 
     def test_download_der_beratungsstelle(self):
         self.abgeschlossen()
-        r = self.c.get("/api/v1/vorgaenge/%d/download/dokument" % self.vid)
+        r = self.c.get("/api/v1/vorgaenge/%d/download/dokument" % self.vid)           # zwei Dokumente: erst wählen
+        self.assertEqual((r.status_code, r.get_json()["error"], [d["rolle"] for d in r.get_json()["dokumente"]]), (400, "dokument_waehlen", ["B", "A"]))
+        r = self.c.get("/api/v1/vorgaenge/%d/download/dokument?dokument=B" % self.vid)
         self.assertEqual((r.status_code, r.headers["Content-Type"]), (200, "application/pdf"))
-        self.assertEqual(r.get_data(), db.dokument_bytes("1001", self.vid, "S"))
-        r = self.c.get("/api/v1/vorgaenge/%d/download/nachweis" % self.vid)
-        self.assertEqual(r.get_data(), db.dokument_bytes("1001", self.vid, "N"))
+        self.assertEqual(r.get_data(), db.dokument_bytes("1001", self.vid, "S_B"))
+        r = self.c.get("/api/v1/vorgaenge/%d/download/nachweis?dokument=A" % self.vid)
+        self.assertEqual(r.get_data(), db.dokument_bytes("1001", self.vid, "N_A"))
+        self.assertEqual(self.c.get("/api/v1/vorgaenge/%d/download/dokument?dokument=M" % self.vid).status_code, 404)
         for _ in range(5):                                                            # unbegrenzt
-            self.assertEqual(self.c.get("/api/v1/vorgaenge/%d/download/dokument" % self.vid).status_code, 200)
+            self.assertEqual(self.c.get("/api/v1/vorgaenge/%d/download/dokument?dokument=A" % self.vid).status_code, 200)
         self.assertEqual(self.c.get("/api/v1/vorgaenge/%d/download/egal" % self.vid).status_code, 404)
         self.assertEqual(len(self.audit_zeilen("dokument_heruntergeladen")), 7)
         anonym = self.app.test_client()
@@ -1170,13 +1196,11 @@ class TestIronyTexte(B5):
         with mock.patch.object(texte, "ORDNER", self.freigabe_ordner("offen")):
             self.starten()
             self.einloggen()
-            self.lesen_n(SEITEN)
-            h = self.texte_holen()["hash"]
-            self.sign(1, h)
-            self.sign(2, self.texte_holen()["hash"])
-        nachweis = db.dokument_bytes("1001", self.vid, "N")
-        text = "\n".join(p.extract_text() for p in PdfReader(io.BytesIO(nachweis)).pages)
-        self.assertIn("noch nicht freigegeben (Freigabe offen)", text)
+            self.alles_unterschreiben()
+        for rolle in ("B", "A"):                                                          # jedes Dokument hat seinen Nachweis mit dem Vorbehalt
+            nachweis = db.dokument_bytes("1001", self.vid, "N_" + rolle)
+            text = " ".join(" ".join(p.extract_text() for p in PdfReader(io.BytesIO(nachweis)).pages).split())
+            self.assertIn("noch nicht freigegeben (Freigabe offen)", text, rolle)
 
 
 def texte_ordner():

@@ -28,7 +28,8 @@ BASIS = "https://signnext.example"
 ORIGIN = {"Origin": BASIS}
 CODE = "01021960"                                   # Geburtsdatum aus dem erfundenen Protokoll A: 01.02.1960
 IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
-SEITEN = 16                                      # B (4) + A (12) zusammengeführt
+SEITEN = 16                                      # B (4) + A (12) zusammen; seit der Einzel-Signatur werden die Dokumente einzeln gelesen (B zuerst: 4 Seiten)
+SEITEN_B, SEITEN_A = 4, 12
 _BILDER = {}
 _echt_rendern = seitenbild.rendern
 
@@ -112,13 +113,23 @@ class ZugangBasis(MailBasis):
         self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
         return r
 
-    def alle_seiten(self, n=SEITEN):
-        for i in range(1, n + 1):
-            self.assertEqual(self.hole("/seite/%d" % i).status_code, 200, i)
+    def status(self, client=None):
+        r = self.hole("/status", client=client)
+        self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
+        return r.get_json()
 
-    def lesen(self):
-        self.alle_seiten()
-        r = self.post("/gelesen", {"bestaetigt": True})
+    def alle_seiten(self, n=None, dokument=None):
+        """Sieht alle Seiten des aktuellen (oder angegebenen) Dokuments an. ``n`` bleibt nur für ältere Aufrufe (seit der Einzel-Signatur zählt das Dokument)."""
+        st = self.status()
+        rolle = dokument or st["dokument"]["rolle"]
+        seiten = next(d["seiten"] for d in st["dokumente"] if d["rolle"] == rolle)
+        for i in range(1, seiten + 1):
+            self.assertEqual(self.hole("/seite/%d?dokument=%s" % (i, rolle)).status_code, 200, (rolle, i))
+        return rolle
+
+    def lesen(self, dokument=None):
+        rolle = self.alle_seiten(dokument=dokument)
+        r = self.post("/gelesen", {"bestaetigt": True, "dokument": rolle})
         self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
 
     def texte_holen(self):
@@ -126,10 +137,32 @@ class ZugangBasis(MailBasis):
         self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
         return r.get_json()
 
-    def sign(self, person, hash_, bild=None, client=None, **kw):
+    def sign(self, person, hash_, bild=None, client=None, dokument=None, **kw):
+        """Unterschrift für ``person`` im aktuellen Dokument (oder ``dokument``); ``dokument=False`` lässt die Angabe weg."""
+        if dokument is None:
+            dokument = self.status(client=client)["dokument"]["rolle"]
         d = {"person": person, "bild": uri(png_bytes()) if bild is None else bild, "ich_unterschreibe": True, "haken": True, "text_hash": hash_}
+        if dokument is not False:
+            d["dokument"] = dokument
         d.update(kw)
         return self.post("/unterschrift", d, client=client)
+
+    def alles_unterschreiben(self, bild=None):
+        """Liest und unterschreibt der Reihe nach alle Dokumente und Personen, bis der Vorgang fertig ist. Liefert die letzte Antwort."""
+        for _ in range(12):
+            st = self.status()
+            if st["schritt"] == "lesen":
+                self.lesen()
+                st = self.status()
+            h = self.texte_holen()["hash"] if st["texte_noetig"] else None
+            if h is None:
+                h = ""
+            p = st["naechste_person"]
+            r = self.sign(p, h, bild=bild if bild is not None else uri(png_bytes() if p == 1 else png_bytes(300, 100)))
+            self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
+            if r.get_json().get("fertig"):
+                return r
+        self.fail("Vorgang wurde nicht fertig")
 
     def bis_zum_unterschreiben(self):
         self.starten()
@@ -225,7 +258,19 @@ class TestMailtextUndMeldungen(ZugangBasis):
         self.assertIn("Zum Öffnen benötigen Sie das Geburtsdatum der Person, für die das Dokument erstellt wurde, bei Ehepaaren und eingetragenen Lebenspartnerschaften "
                       "der zuerst genannten Person (acht Ziffern: Tag, Monat, vierstelliges Jahr, ohne Punkte).", text)
         self.assertNotIn("Ihr Geburtsdatum", text)
+        self.assertEqual(m["Subject"], "Ihre Beratungsstelle: Dokumente zur Unterschrift bereit")                 # zwei Dokumente (Anschreiben und Protokoll), catrin 18.11.2026
+        self.assertIn("Ihre Beratungsstelle hat zwei Dokumente für Sie zur Unterschrift bereitgestellt. Jedes Dokument wird einzeln gelesen und einzeln unterschrieben.", text)
+        self.assertIn("Bitte öffnen Sie sie über diesen persönlichen Link", text)
+
+    def test_mailtext_bei_einem_dokument_bleibt_der_freigegebene(self):
+        vid = self.bereit(a=False)                                                               # nur das Anschreiben
+        self.assertEqual(self.c.put("/api/v1/vorgaenge/%d/angaben" % vid, json={"geburtsdatum": "01.02.1960"}).status_code, 200)
+        self.assertEqual(self.senden_ok(vid).status_code, 200)
+        m, text = self.mail_text(self.srv.nachrichten[0])
         self.assertEqual(m["Subject"], "Ihre Beratungsstelle: Dokument zur Unterschrift bereit")
+        self.assertIn("Ihre Beratungsstelle hat ein Dokument für Sie zur Unterschrift bereitgestellt.", text)
+        self.assertIn("Bitte öffnen Sie es über diesen persönlichen Link", text)
+        self.assertNotIn("zwei Dokumente", text)
 
     def test_link_steht_im_fragment_nicht_im_pfad(self):
         self.starten()
@@ -456,7 +501,7 @@ class TestCode(ZugangBasis):
 class TestSitzung(ZugangBasis):
     def test_ohne_sitzung_nichts(self):
         self.starten()
-        for r in (self.hole("/status"), self.hole("/seite/1"), self.hole("/texte"), self.post("/gelesen", {"bestaetigt": True}), self.sign(1, "x")):
+        for r in (self.hole("/status"), self.hole("/seite/1"), self.hole("/texte"), self.post("/gelesen", {"bestaetigt": True}), self.sign(1, "x", dokument="B")):
             self.assertEqual((r.status_code, r.get_json()["error"]), (401, "sitzung_ungueltig"))
 
     def test_sitzung_laeuft_nach_60_minuten_ab(self):
@@ -524,7 +569,9 @@ class TestSitzung(ZugangBasis):
         self.starten()
         self.einloggen()
         j = self.hole("/status").get_json()
-        self.assertEqual((j["schritt"], j["seiten"], j["geliefert"], j["personen"], j["unterschrieben"], j["naechste_person"]), ("lesen", SEITEN, 0, 2, [], 1))
+        self.assertEqual((j["schritt"], j["seiten"], j["geliefert"], j["personen"], j["unterschrieben"], j["naechste_person"]), ("lesen", SEITEN_B, 0, 2, [], 1))
+        self.assertEqual((j["dokument"], j["texte_noetig"]), ({"rolle": "B", "titel": "Anschreiben", "nr": 1, "von": 2, "seiten": SEITEN_B}, True))
+        self.assertEqual([(d["rolle"], d["seiten"], d["erforderlich"], d["unterschrieben"], d["fertig"]) for d in j["dokumente"]], [("B", SEITEN_B, [1, 2], [], False), ("A", SEITEN_A, [1, 2], [], False)])
         self.lesen()
         self.assertEqual(self.hole("/status").get_json()["schritt"], "texte")
         self.texte_holen()
@@ -544,7 +591,7 @@ class TestSchritte(ZugangBasis):
         self.assertIn("no-store", r.headers["Cache-Control"])
         self.assertEqual(r.headers["X-Content-Type-Options"], "nosniff")
         self.assertNotIn(self.token, r.headers.get("Content-Disposition", "") + r.headers.get("Location", ""))
-        for n in (0, SEITEN + 1, 999):
+        for n in (0, SEITEN_B + 1, 999):
             self.assertEqual(self.hole("/seite/%d" % n).status_code, 404, n)
         self.assertEqual(self.m.get("/api/v1/zugang/seite/abc", base_url=BASIS).status_code, 404)
 
@@ -562,11 +609,11 @@ class TestSchritte(ZugangBasis):
         self.einloggen()
         r = self.post("/gelesen", {"bestaetigt": True})
         self.assertEqual((r.status_code, r.get_json()["error"]), (409, "seiten_fehlen"))
-        for n in range(1, SEITEN):
+        for n in range(1, SEITEN_B):
             self.hole("/seite/%d" % n)
         self.assertEqual(self.post("/gelesen", {"bestaetigt": True}).get_json()["error"], "seiten_fehlen")
-        self.hole("/seite/%d" % SEITEN)
-        self.assertEqual(self.hole("/status").get_json()["geliefert"], SEITEN)
+        self.hole("/seite/%d" % SEITEN_B)
+        self.assertEqual(self.hole("/status").get_json()["geliefert"], SEITEN_B)
         for body in (None, {}, {"bestaetigt": False}, {"bestaetigt": "ja"}, {"bestaetigt": True, "x": 1}):
             self.assertEqual(self.post("/gelesen", body).status_code, 400, body)
         self.assertEqual(self.post("/gelesen", {"bestaetigt": True}).status_code, 200)
@@ -682,13 +729,22 @@ class TestUnterschrift(ZugangBasis):
 
     def test_nur_erwartete_felder_keine_biometrie(self):
         h = self.bis_zum_unterschreiben()
-        voll = {"person": 1, "bild": uri(png_bytes()), "ich_unterschreibe": True, "haken": True, "text_hash": h}
+        voll = {"dokument": "B", "person": 1, "bild": uri(png_bytes()), "ich_unterschreibe": True, "haken": True, "text_hash": h}
         for extra in ({"druck": [0.5, 0.6]}, {"geschwindigkeit": 3}, {"striche": [[1, 2], [3, 4]]}, {"zeitpunkte": [1, 2]}, {"pointer": "pen"}):
             r = self.post("/unterschrift", dict(voll, **extra))
             self.assertEqual((r.status_code, r.get_json()["error"]), (400, "eingabe_ungueltig"), extra)
-        for fehlt in voll:
+        for fehlt in ("person", "bild", "ich_unterschreibe"):                                   # Pflichtfelder
             r = self.post("/unterschrift", {k: v for k, v in voll.items() if k != fehlt})
-            self.assertEqual(r.status_code, 400, fehlt)
+            self.assertEqual((r.status_code, r.get_json()["error"]), (400, "eingabe_ungueltig"), fehlt)
+        r = self.post("/unterschrift", {k: v for k, v in voll.items() if k != "dokument"})       # bei zwei Dokumenten muss das Dokument genannt sein
+        self.assertEqual((r.status_code, r.get_json()["error"]), (400, "dokument_ungueltig"))
+        for ungueltig in ("X", "M", None, 5, ["B"]):
+            r = self.post("/unterschrift", dict(voll, dokument=ungueltig))
+            self.assertEqual((r.status_code, r.get_json()["error"]), (400, "dokument_ungueltig"), ungueltig)
+        for fehlt in ("haken", "text_hash"):                                                    # solange die Zustimmung dieser Person fehlt, sind beide Pflicht
+            r = self.post("/unterschrift", {k: v for k, v in voll.items() if k != fehlt})
+            self.assertIn(r.status_code, (400, 409), fehlt)
+            self.assertNotEqual(r.status_code, 200)
         for body in (None, [], "x"):
             self.assertEqual(self.post("/unterschrift", body).status_code, 400)
         self.assertEqual(self.alle_zeilen(), [])
@@ -712,7 +768,7 @@ class TestUnterschrift(ZugangBasis):
             self.assertIn(r.status_code, (413, 422), (code, r.status_code))
             if r.status_code == 422:
                 self.assertEqual(r.get_json()["error"], code, code)
-        r = self.post("/unterschrift", {"person": 1, "bild": None, "ich_unterschreibe": True, "haken": True, "text_hash": h})
+        r = self.post("/unterschrift", {"dokument": "B", "person": 1, "bild": None, "ich_unterschreibe": True, "haken": True, "text_hash": h})
         self.assertEqual((r.status_code, r.get_json()["error"]), (422, "bild_format"))
         self.assertEqual(self.alle_zeilen(), [])
         self.assertEqual(self.sign(1, h).status_code, 200)
@@ -733,18 +789,31 @@ class TestUnterschrift(ZugangBasis):
 
     def test_ehepaar_nacheinander_ein_link(self):
         h = self.bis_zum_unterschreiben()
-        r = self.sign(1, h)
-        self.assertEqual((r.status_code, r.get_json()), (200, {"fertig": False, "naechste_person": 2}))
+        r = self.sign(1, h)                                                                       # Anschreiben (B), Person 1
+        self.assertEqual((r.status_code, r.get_json()), (200, {"fertig": False, "dokument_fertig": False, "naechste": {"dokument": "B", "person": 2}, "naechste_person": 2}))
         # Haken und Text gelten je Person: ohne erneute Anzeige geht Person 2 nicht
         r = self.sign(2, h)
         self.assertEqual((r.status_code, r.get_json()["error"]), (409, "texte_fehlen"))
         self.assertEqual(self.hole("/status").get_json()["schritt"], "texte")
         h2 = self.texte_holen()["hash"]
         self.assertEqual(h2, h)
-        r = self.sign(2, h2)
+        r = self.sign(2, h2)                                                                      # Anschreiben (B), Person 2: Dokument fertig
+        self.assertEqual((r.status_code, r.get_json()), (200, {"fertig": False, "dokument_fertig": True, "naechste": {"dokument": "A", "person": 1}, "naechste_person": 1}))
+        self.assertEqual(db.vorgang_lesen("1001", self.vid)["status"], "versendet")
+        r = self.sign(1, h, dokument="A")                                                         # Protokoll vor dem Lesen: nicht möglich
+        self.assertEqual((r.status_code, r.get_json()["error"]), (409, "lesen_fehlt"))
+        self.assertEqual(self.hole("/status").get_json()["schritt"], "lesen")
+        self.lesen()
+        st = self.hole("/status").get_json()
+        self.assertEqual((st["schritt"], st["texte_noetig"], st["dokument"]["rolle"]), ("unterschreiben", False, "A"))     # Person 1 hat schon zugestimmt: kein Texte-Schritt
+        r = self.sign(1, "", haken=False)
+        self.assertEqual((r.status_code, r.get_json()["naechste"]), (200, {"dokument": "A", "person": 2}))
+        r = self.sign(2, "", haken=None)                                                          # Person 2 hat im Anschreiben zugestimmt
         self.assertEqual((r.status_code, r.get_json()), (200, {"fertig": True}))
         self.assertEqual(db.vorgang_lesen("1001", self.vid)["status"], "unterschrieben")
-        self.assertEqual(len(self.alle_zeilen()), 2)
+        zeilen = self.alle_zeilen()
+        self.assertEqual(sorted((z["dokument_rolle"], z["person"], z["haken_uebernommen"]) for z in zeilen), [("A", 1, 1), ("A", 2, 1), ("B", 1, 0), ("B", 2, 0)])
+        self.assertEqual({z["text_hash"] for z in zeilen}, {h})                                   # Zustimmung stammt aus der ersten Unterschrift
         self.assertTrue(self.link_zeile()["verbraucht_am"])
         # danach ist alles zu: Sitzung, Link, Code
         self.assertEqual(self.hole("/status").status_code, 401)
@@ -755,19 +824,35 @@ class TestUnterschrift(ZugangBasis):
             self.assertEqual(c.execute("SELECT COUNT(*) FROM sitzung").fetchone()[0], 0)
         self.assertEqual([x["details"] for x in self.audit_zeilen("unterschrieben")], ["vorgang=%d" % self.vid])
 
+    def test_reihenfolge_der_dokumente_und_personen(self):
+        h = self.bis_zum_unterschreiben()
+        r = self.sign(1, h, dokument="A")                                                         # Protokoll vor dem Anschreiben
+        self.assertEqual((r.status_code, r.get_json()["error"]), (409, "lesen_fehlt"))
+        self.lesen(dokument="A")
+        r = self.sign(1, h, dokument="A")
+        self.assertEqual((r.status_code, r.get_json()["error"]), (409, "dokument_nicht_dran"))
+        r = self.sign(2, h, dokument="B")                                                         # Person 2 vor Person 1
+        self.assertEqual((r.status_code, r.get_json()["error"]), (409, "reihenfolge"))
+        self.assertEqual(self.sign(1, h, dokument="B").status_code, 200)
+        r = self.sign(1, h, dokument="B")
+        self.assertEqual((r.status_code, r.get_json()["error"]), (409, "schon_unterschrieben"))
+        self.assertEqual([(z["dokument_rolle"], z["person"]) for z in self.alle_zeilen()], [("B", 1)])
+
     def test_einzelperson(self):
         self.starten(personen=1)
         self.einloggen()
-        self.lesen_n(SEITEN)
+        self.lesen()
         h = self.texte_holen()["hash"]
+        r = self.sign(1, h)                                                                       # Anschreiben
+        self.assertEqual((r.status_code, r.get_json()), (200, {"fertig": False, "dokument_fertig": True, "naechste": {"dokument": "A", "person": 1}, "naechste_person": 1}))
+        self.lesen()                                                                              # Protokoll
         r = self.sign(1, h)
         self.assertEqual((r.status_code, r.get_json()), (200, {"fertig": True}))
-        self.assertEqual(self.sign(2, h).status_code, 401)
-        self.assertEqual(len(self.alle_zeilen()), 1)
+        self.assertEqual(self.sign(2, h, dokument="A").status_code, 401)
+        self.assertEqual(len(self.alle_zeilen()), 2)
 
-    def lesen_n(self, n):
-        self.alle_seiten(n)
-        self.assertEqual(self.post("/gelesen", {"bestaetigt": True}).status_code, 200)
+    def lesen_n(self, n=None):
+        self.lesen()
 
     def test_nachweis_je_unterschrift(self):
         h = self.bis_zum_unterschreiben()
@@ -791,7 +876,7 @@ class TestUnterschrift(ZugangBasis):
         self.lesen()
         h = self.texte_holen()["hash"]
         with mock.patch.dict(os.environ, {"SIGNNEXT_IP_SPEICHERUNG": "gekuerzt"}):
-            r = self.post("/unterschrift", {"person": 1, "bild": uri(png_bytes()), "ich_unterschreibe": True, "haken": True, "text_hash": h}, kopf={"X-Forwarded-For": "198.51.100.77"})
+            r = self.post("/unterschrift", {"dokument": "B", "person": 1, "bild": uri(png_bytes()), "ich_unterschreibe": True, "haken": True, "text_hash": h}, kopf={"X-Forwarded-For": "198.51.100.77"})
             self.assertEqual(r.status_code, 200)
         self.assertEqual(self.alle_zeilen()[0]["ip"], "198.51.100.0")
 
@@ -808,7 +893,7 @@ class TestUnterschrift(ZugangBasis):
         c2 = self.app.test_client()
         self.assertEqual(self.pruefen(client=c2).status_code, 200)
         self.alle_seiten()
-        for n in range(1, SEITEN + 1):
+        for n in range(1, SEITEN_B + 1):
             self.hole("/seite/%d" % n, client=c2)
         self.post("/gelesen", {"bestaetigt": True}, client=c2)
         h2 = self.hole("/texte", client=c2).get_json()["hash"]
@@ -833,10 +918,10 @@ class TestUnterschrift(ZugangBasis):
     def test_nach_sperre_oder_ablauf_ist_die_sitzung_tot(self):
         h = self.bis_zum_unterschreiben()
         with self.zeit(days=8):
-            self.assertEqual(self.sign(1, h).status_code, 401)
+            self.assertEqual(self.sign(1, h, dokument="B").status_code, 401)
         with db.verbindung() as c:
             c.execute("UPDATE link SET gesperrt=1")
-        self.assertEqual(self.sign(1, h).status_code, 401)
+        self.assertEqual(self.sign(1, h, dokument="B").status_code, 401)
         self.assertEqual(self.alle_zeilen(), [])
 
     def test_nichts_geheimes_in_log_audit_und_antworten(self):
@@ -911,10 +996,7 @@ class TestNeuerLink(ZugangBasis):
         h = None
         self.starten(personen=1)
         self.einloggen()
-        self.alle_seiten(SEITEN)
-        self.post("/gelesen", {"bestaetigt": True})
-        h = self.texte_holen()["hash"]
-        self.assertEqual(self.sign(1, h).status_code, 200)
+        self.alles_unterschreiben()
         r = self.neuer()
         self.assertEqual((r.status_code, r.get_json()["error"]), (409, "schon_unterschrieben"))
         self.assertEqual(len(self.srv.nachrichten), 1)

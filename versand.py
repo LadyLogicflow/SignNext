@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 import config
 import db
+import dokumente
 import mail_zugang
 import mailer
 import pruefung
@@ -25,6 +26,12 @@ TEXT = (
     "Haben Sie diese Nachricht nicht erwartet, öffnen Sie den Link bitte nicht und rufen Sie Ihre Beratungsstelle an.\n\n"
     "Wenn Sie nicht unterschreiben möchten oder Fragen haben, wenden Sie sich bitte an Ihre Beratungsstelle.\n"
 )
+# Mail bei zwei Dokumenten, die einzeln gelesen und unterschrieben werden (catrin 18.11.2026 freigegeben). Bei einem Dokument gilt der Text oben.
+BETREFF_MEHRERE = "Ihre Beratungsstelle: Dokumente zur Unterschrift bereit"
+TEXT_MEHRERE = (TEXT.replace("Ihre Beratungsstelle hat ein Dokument für Sie zur Unterschrift bereitgestellt.",
+                             "Ihre Beratungsstelle hat zwei Dokumente für Sie zur Unterschrift bereitgestellt. Jedes Dokument wird einzeln gelesen und einzeln unterschrieben.")
+                .replace("Bitte öffnen Sie es über diesen persönlichen Link", "Bitte öffnen Sie sie über diesen persönlichen Link"))
+assert TEXT_MEHRERE.count("zwei Dokumente") == 1 and "öffnen Sie sie" in TEXT_MEHRERE
 FEHLER_STATUS = {"tls_zertifikat": 502, "tls_nicht_angeboten": 502, "tls_fehler": 502, "verbindung": 502, "anmeldung": 502, "absender_abgelehnt": 502, "empfaenger_abgelehnt": 422, "abgelehnt": 502, "konfiguration": 409}
 
 
@@ -141,10 +148,11 @@ def _senden(mandant_ref: str, vorgang_id: int, nutzer: str, neu: bool, demo_ohne
             _zurueck(mandant_ref, vorgang_id, token_hash, "intern", ausgang, erst)
             raise
         # Der Link steht nach dem # (Fragment): Der Browser schickt ihn nie an den Server, er landet in keinem Zugriffsprotokoll von SignNext oder des Proxys.
-        text = TEXT.format(link="%s/u#%s" % (basis, token))
+        mehrere = len(dokumente.rollen(mandant_ref, vorgang_id)) > 1
+        text = (TEXT_MEHRERE if mehrere else TEXT).format(link="%s/u#%s" % (basis, token))
         if zugang["signatur"]:
             text += "\n-- \n%s\n" % zugang["signatur"]
-        nachricht = mailer.nachricht_bauen(zugang["absender_adresse"], zugang["absender_name"], e["email"], BETREFF, text)
+        nachricht = mailer.nachricht_bauen(zugang["absender_adresse"], zugang["absender_name"], e["email"], BETREFF_MEHRERE if mehrere else BETREFF, text)
         empfaenger = [e["email"]] + ([zugang["absender_adresse"]] if zugang["bcc_an_absender"] else [])
         try:
             message_id = mailer.senden(zugang, empfaenger, nachricht)

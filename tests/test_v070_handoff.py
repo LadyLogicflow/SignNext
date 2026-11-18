@@ -20,11 +20,14 @@ class HandoffBasis(ZugangBasis):
     def bereit_zum_zeichnen(self):
         self.hash = self.bis_zum_unterschreiben()
 
-    def erzeugen(self, person=1, **kw):
-        return self.post("/handoff", {"person": person}, **kw)
+    def erzeugen(self, person=1, dokument="B", **kw):
+        body = {"person": person}
+        if dokument is not False:
+            body["dokument"] = dokument
+        return self.post("/handoff", body, **kw)
 
-    def neu(self, person=1):
-        r = self.erzeugen(person)
+    def neu(self, person=1, dokument="B"):
+        r = self.erzeugen(person, dokument)
         self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
         j = r.get_json()
         return j["handoff_id"], j["url"].split("#", 1)[1], j
@@ -34,7 +37,7 @@ class HandoffBasis(ZugangBasis):
         h.update(kopf or {})
         return self.handy_client.post("/api/v1/handy" + pfad, json=daten, headers=h, base_url=BASIS)
 
-    def status(self, hid):
+    def hstatus(self, hid):
         return self.hole("/handoff/" + hid).get_json()
 
     def abholen(self, hid):
@@ -99,7 +102,7 @@ class TestErzeugen(HandoffBasis):
         self.assertEqual(len(self.zeilen()), 1)
         self.assertEqual(self.handy("/info", {"token": t1}).get_json()["error"], LINK_UNGUELTIG)
         self.assertEqual(self.handy("/info", {"token": t2}).status_code, 200)
-        self.assertEqual(self.status(h1)["status"], "abgelaufen")
+        self.assertEqual(self.hstatus(h1)["status"], "abgelaufen")
 
     def test_hoechstens_zehn_je_stunde(self):
         self.bereit_zum_zeichnen()
@@ -115,14 +118,14 @@ class TestAblauf(HandoffBasis):
     def test_vom_qr_bis_zur_unterschrift(self):
         self.bereit_zum_zeichnen()
         hid, token, _ = self.neu()
-        self.assertEqual(self.status(hid)["status"], "wartet")
+        self.assertEqual(self.hstatus(hid)["status"], "wartet")
         r = self.handy("/info", {"token": token})
-        self.assertEqual((r.status_code, r.get_json()), (200, {"person": 1, "personen": 2, "status": "verbunden"}))
-        self.assertEqual(self.status(hid)["status"], "verbunden")
+        self.assertEqual((r.status_code, r.get_json()), (200, {"person": 1, "personen": 2, "dokument": {"rolle": "B", "titel": "Anschreiben", "nr": 1, "von": 2}, "status": "verbunden"}))
+        self.assertEqual(self.hstatus(hid)["status"], "verbunden")
         self.assertEqual(self.abholen(hid).get_json()["error"], "noch_nicht_gezeichnet")
         r = self.handy("/unterschrift", {"token": token, "bild": uri(png_bytes())})
         self.assertEqual((r.status_code, r.get_json()), (200, {"ok": True}))
-        self.assertEqual(self.status(hid)["status"], "gezeichnet")
+        self.assertEqual(self.hstatus(hid)["status"], "gezeichnet")
         r = self.abholen(hid)
         self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
         bild = r.get_json()["bild"]
@@ -162,7 +165,7 @@ class TestAblauf(HandoffBasis):
         for bild, code in faelle:
             r = self.handy("/unterschrift", {"token": token, "bild": bild})
             self.assertEqual((r.status_code, r.get_json()["error"]), (422, code), code)
-        self.assertEqual(self.status(hid)["status"], "wartet")                                          # nichts gespeichert
+        self.assertEqual(self.hstatus(hid)["status"], "wartet")                                          # nichts gespeichert
         self.assertIsNone(self.zeilen()[0]["bild_enc"])
 
     def test_abbrechen_macht_den_link_ungueltig(self):
@@ -213,7 +216,7 @@ class TestBindung(HandoffBasis):
         r = fremd.post("/api/v1/zugang/handoff/%s/abholen" % hid, json=None, headers=dict(self.ua, **ORIGIN), base_url=BASIS)
         self.assertEqual(r.status_code, 401)
         self.assertEqual(len(self.zeilen()), 1)                                                         # das Bild ist noch da
-        self.assertEqual(self.status("0" * 24)["status"], "abgelaufen")                                 # fremde/unbekannte Kennung verrät nichts
+        self.assertEqual(self.hstatus("0" * 24)["status"], "abgelaufen")                                 # fremde/unbekannte Kennung verrät nichts
         self.assertEqual(self.abholen(hid).status_code, 200)
 
     def test_zweite_gueltige_sitzung_desselben_vorgangs_sieht_die_uebergabe_nicht(self):
@@ -249,7 +252,7 @@ class TestBindung(HandoffBasis):
         with self.in_der_zukunft(minutes=11):
             self.assertEqual(handoff.aufraeumen(), 1)
         self.assertEqual(self.zeilen(), [])
-        self.assertEqual(self.status(hid)["status"], "abgelaufen")
+        self.assertEqual(self.hstatus(hid)["status"], "abgelaufen")
         self.assertEqual(self.abholen(hid).get_json()["error"], "schon_abgeholt")
 
     def test_handy_braucht_gleichen_ursprung_und_ist_begrenzt(self):
@@ -260,6 +263,47 @@ class TestBindung(HandoffBasis):
         with mock.patch("handoff.HANDY_LIMIT", 3):
             codes = [self.handy("/info", {"token": "B" * 43}).status_code for _ in range(5)]
         self.assertEqual(codes, [404, 404, 404, 429, 429])
+
+
+class TestJeDokument(HandoffBasis):
+    """Einzel-Signatur: Die Übergabe gilt für genau ein Dokument und die nächste Person darin."""
+
+    def test_dokument_ist_pflicht_und_muss_dran_sein(self):
+        self.bereit_zum_zeichnen()
+        for dokument in (False, "X", "M", None, 5):
+            r = self.erzeugen(1, dokument)
+            self.assertEqual((r.status_code, r.get_json()["error"]), (400, "dokument_ungueltig"), dokument)
+        self.lesen(dokument="A")                                                                        # Protokoll gelesen, aber das Anschreiben ist noch dran
+        r = self.erzeugen(1, "A")
+        self.assertEqual((r.status_code, r.get_json()["error"]), (409, "schritt_falsch"))
+        self.assertEqual(self.zeilen(), [])
+        self.assertEqual(self.erzeugen(1, "B").status_code, 200)
+        self.assertEqual(self.zeilen()[0]["dokument_rolle"], "B")
+
+    def test_handoff_fuer_das_zweite_dokument(self):
+        self.bereit_zum_zeichnen()
+        self.assertEqual(self.sign(1, self.hash).status_code, 200)                                      # Anschreiben: Person 1 und 2 am Computer
+        self.assertEqual(self.sign(2, self.texte_holen()["hash"]).get_json()["naechste"], {"dokument": "A", "person": 1})
+        r = self.erzeugen(1, "A")                                                                       # Protokoll noch nicht gelesen
+        self.assertEqual((r.status_code, r.get_json()["error"]), (409, "schritt_falsch"))
+        self.lesen()
+        hid, token, _ = self.neu(1, "A")
+        r = self.handy("/info", {"token": token})
+        self.assertEqual(r.get_json()["dokument"], {"rolle": "A", "titel": "Protokoll", "nr": 2, "von": 2})
+        self.assertEqual(self.handy("/unterschrift", {"token": token, "bild": uri(png_bytes())}).status_code, 200)
+        bild = self.abholen(hid).get_json()["bild"]
+        r = self.sign(1, "", bild=bild)                                                                 # am Computer bestätigt: Zustimmung stammt aus dem Anschreiben
+        self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
+        self.assertEqual(r.get_json()["naechste"], {"dokument": "A", "person": 2})
+
+    def test_link_fuer_ein_dokument_gilt_nicht_mehr_wenn_es_nicht_dran_ist(self):
+        self.bereit_zum_zeichnen()
+        hid, token, _ = self.neu(1, "B")
+        self.assertEqual(self.handy("/info", {"token": token}).status_code, 200)
+        with db.verbindung() as c:                                                                      # Zustand verfälscht: Übergabe nennt ein anderes Dokument
+            c.execute("UPDATE handoff SET dokument_rolle='A'")
+        r = self.handy("/info", {"token": token})
+        self.assertEqual((r.status_code, r.get_json()["error"]), (404, LINK_UNGUELTIG))
 
 
 if __name__ == "__main__":

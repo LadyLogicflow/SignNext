@@ -644,7 +644,8 @@ class TestPruefansicht(MailBasis):
         self.assertTrue(r.headers["Content-Disposition"].startswith("inline"))
         self.assertIn("sandbox", r.headers["Content-Security-Policy"])
         self.assertEqual(r.headers["X-Content-Type-Options"], "nosniff")
-        self.assertEqual(r.data, db.dokument_bytes("1001", vid, "M"))
+        self.assertEqual(r.data, db.dokument_bytes("1001", vid, "B"))                      # ohne Angabe das erste Dokument (Anschreiben)
+        self.assertEqual(self.c.get("/api/v1/vorgaenge/%d/dokument?dokument=A" % vid).data, db.dokument_bytes("1001", vid, "A"))
         einzeln = self.bereit(b=False)
         self.assertEqual(self.c.get("/api/v1/vorgaenge/%d/dokument" % einzeln).data, db.dokument_bytes("1001", einzeln, "A"))
         self.assertTrue(self.audit_zeilen("dokument_gelesen"))
@@ -776,7 +777,7 @@ class TestVersand(MailBasis):
         n = srv.nachrichten[0]
         self.assertEqual((n["an"], n["von"].lower().strip("<>").split(":")[-1].strip("<> "), n["angemeldet"], n["tls"]), ([pdfs.MAIL], ABSENDER, True, True))
         m, text = self.mail_text(n)
-        self.assertEqual(m["Subject"], versand.BETREFF)
+        self.assertEqual(m["Subject"], versand.BETREFF_MEHRERE)                                # zwei Dokumente
         self.assertEqual(m["From"], "Beratungsstelle Beispiel <%s>" % ABSENDER)
         self.assertIsNone(m["Bcc"])
         token = re.search(r"https://signnext\.example/u#([A-Za-z0-9_-]+)", text).group(1)

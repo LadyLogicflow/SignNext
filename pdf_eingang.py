@@ -91,8 +91,6 @@ def anlegen(mandant_ref: str, dateien: list, namen: list | None = None) -> dict:
         else:
             ab = abgleich.abgleichen(by["A"][1]["werte"], by["B"][1]["werte"])
             status = "bereit" if ab["status"] == "automatisch" else "bestaetigung_noetig"
-            if status == "bereit":
-                _zusammenfuehren(mandant_ref, vorgang_id, by)
         db.vorgang_aendern(mandant_ref, vorgang_id, status=status, personen=personen, abgleich=json.dumps(ab), name=name)
     except Exception:
         loeschen(mandant_ref, vorgang_id)
@@ -100,12 +98,6 @@ def anlegen(mandant_ref: str, dateien: list, namen: list | None = None) -> dict:
     return {"vorgang_id": vorgang_id, "status": status, "name": name, "abgleich": ab, "personen": personen,
             "dokumente": [{"rolle": t, "seiten": e["seiten"], "stellen": len(e["stellen"])} for t, (_, e) in sorted(by.items())],
             "hinweise": sorted({h for _, (_, e) in by.items() for h in e["hinweise"]}), "mail_erkannt": "mail" in by.get("B", (None, {"werte": {}}))[1]["werte"]}
-
-
-def _zusammenfuehren(mandant_ref: str, vorgang_id: int, by: dict) -> None:
-    daten, stellen = abgleich.zusammenfuehren(by["B"][0], by["A"][0], by["B"][1]["stellen"], by["A"][1]["stellen"])
-    db.dokument_speichern(mandant_ref, vorgang_id, "M", daten, hashlib.sha256(daten).hexdigest(),
-                          by["B"][1]["seiten"] + by["A"][1]["seiten"], stellen)
 
 
 def bestaetigen(mandant_ref: str, vorgang_id: int, nutzer: str) -> dict:
@@ -119,8 +111,6 @@ def bestaetigen(mandant_ref: str, vorgang_id: int, nutzer: str) -> dict:
     b = db.dokument_bytes(mandant_ref, vorgang_id, "B")
     if a is None or b is None:
         raise Fehler("dokumente_fehlen", 409)
-    zeilen = {d["rolle"]: d for d in db.dokumente_liste(mandant_ref, vorgang_id)}
-    _zusammenfuehren(mandant_ref, vorgang_id, {"A": (a, zeilen["A"]), "B": (b, zeilen["B"])})
     db.vorgang_aendern(mandant_ref, vorgang_id, status="bereit", bestaetigt_von=nutzer, bestaetigt_am=db.jetzt())
     return {"vorgang_id": vorgang_id, "status": "bereit"}
 

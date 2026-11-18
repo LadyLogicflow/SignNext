@@ -132,7 +132,8 @@ CREATE TABLE IF NOT EXISTS sitzung (
     gelesen_am TEXT,
     texte_angezeigt_am TEXT,
     texte_kennung TEXT,
-    texte_hash TEXT
+    texte_hash TEXT,
+    dok_stand TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_sitzung_vorgang ON sitzung(mandant_ref, vorgang_id);
 -- Handy-Übergabe der Unterschrift (handoff.py): kurzlebig (10 Minuten), das Bild liegt nur verschlüsselt hier und wird nach der Abholung sofort gelöscht.
@@ -144,6 +145,7 @@ CREATE TABLE IF NOT EXISTS handoff (
     vorgang_id INTEGER NOT NULL,
     mandant_ref TEXT NOT NULL,
     person INTEGER NOT NULL,
+    dokument_rolle TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'wartet',
     erstellt TEXT NOT NULL,
     laeuft_ab TEXT NOT NULL,
@@ -162,6 +164,8 @@ CREATE TABLE IF NOT EXISTS unterschrift (
     vorgang_id INTEGER NOT NULL REFERENCES vorgang(id),
     mandant_ref TEXT NOT NULL,
     person INTEGER NOT NULL,
+    dokument_rolle TEXT NOT NULL DEFAULT 'M',
+    haken_uebernommen INTEGER NOT NULL DEFAULT 0,
     bild BLOB NOT NULL,
     bild_sha256 TEXT NOT NULL,
     zeit_texte_angezeigt TEXT NOT NULL,
@@ -172,7 +176,7 @@ CREATE TABLE IF NOT EXISTS unterschrift (
     klick INTEGER NOT NULL,
     ip TEXT NOT NULL DEFAULT '',
     geraet TEXT NOT NULL DEFAULT '',
-    UNIQUE(vorgang_id, person)
+    UNIQUE(vorgang_id, dokument_rolle, person)
 );
 -- Aufrufprotokoll je Link (Zeit, gekürzte IP, Ergebnis).
 CREATE TABLE IF NOT EXISTS zugriff_log (
@@ -281,7 +285,16 @@ def init(pfad: str) -> None:
     global _pfad
     _pfad = pfad
     with verbindung() as c:
+        # v0.7.0 Einzel-Signatur: Unterschriften gelten je Dokument (UNIQUE ändert sich, SQLite braucht dafür den Umbau der Tabelle). Alte Zeilen gehören zum zusammengeführten Dokument 'M'.
+        alt = bool(c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='unterschrift'").fetchone()) and \
+            "dokument_rolle" not in {z["name"] for z in c.execute("PRAGMA table_info(unterschrift)")}
+        if alt:
+            c.execute("ALTER TABLE unterschrift RENAME TO unterschrift_alt")
         c.executescript(SCHEMA)
+        if alt:
+            c.execute("INSERT INTO unterschrift(id, vorgang_id, mandant_ref, person, dokument_rolle, bild, bild_sha256, zeit_texte_angezeigt, zeit_unterschrift, text_kennung, text_hash, haken, klick, ip, geraet) "
+                      "SELECT id, vorgang_id, mandant_ref, person, 'M', bild, bild_sha256, zeit_texte_angezeigt, zeit_unterschrift, text_kennung, text_hash, haken, klick, ip, geraet FROM unterschrift_alt")
+            c.execute("DROP TABLE unterschrift_alt")
         c.execute("PRAGMA journal_mode=WAL")
         # Datenbanken aus 0.1.0 haben die neuen Spalten von vorgang noch nicht.
         vorhanden = {z["name"] for z in c.execute("PRAGMA table_info(vorgang)")}
@@ -296,7 +309,8 @@ def init(pfad: str) -> None:
                 c.execute("ALTER TABLE vorgang ADD COLUMN %s %s" % (spalte, typ))
         for tabelle, spalte, typ in (("link", "token_enc", "TEXT"), ("stelle_einstellung", "aufbewahrung_tage", "INTEGER"),
                                      ("stelle_einstellung", "mitglied_download_link", "INTEGER NOT NULL DEFAULT 1"),
-                                     ("download_link", "fehlversuche", "INTEGER NOT NULL DEFAULT 0")):
+                                     ("download_link", "fehlversuche", "INTEGER NOT NULL DEFAULT 0"),
+                                     ("sitzung", "dok_stand", "TEXT NOT NULL DEFAULT '{}'"), ("handoff", "dokument_rolle", "TEXT NOT NULL DEFAULT ''")):
             if spalte not in {z["name"] for z in c.execute("PRAGMA table_info(%s)" % tabelle)}:
                 c.execute("ALTER TABLE %s ADD COLUMN %s %s" % (tabelle, spalte, typ))
         c.execute("CREATE INDEX IF NOT EXISTS idx_vorgang_zaehlung ON vorgang(mandant_ref, zaehlmonat)")      # nach den Spalten (alte Datenbanken)

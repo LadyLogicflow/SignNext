@@ -12,6 +12,7 @@ from flask import Blueprint, Response, g, jsonify, request
 
 import config
 import db
+import dokumente
 import schluessel
 from portal_auth import anmeldung_pflicht, audit, client_ip, kuerze_ip
 from zugang import IP_FENSTER_MINUTEN, IP_LIMIT, _origin_pruefen
@@ -51,8 +52,8 @@ def _falsch(versuche: int, gesperrt: bool):
     return jsonify({"error": "angaben_stimmen_nicht", "meldung": "Angaben stimmen nicht.", "versuch": min(versuche, MAX_VERSUCHE), "von": MAX_VERSUCHE, "gesperrt": bool(gesperrt)}), 401
 
 
-def _abrufen_intern(token: str, code: str) -> dict:
-    """{'art': 'ok', 'daten', 'zaehler', 'max'} | {'art': 'falsch', 'versuche', 'gesperrt'} | {'art': 'ratelimit'}. Eine Transaktion (atomar)."""
+def _abrufen_intern(token: str, code: str, dokument=None) -> dict:
+    """{'art': 'ok', 'daten', 'zaehler', 'max'} | {'art': 'auswahl', 'dokumente'} (richtiger Code, aber bei mehreren Dokumenten fehlt die Wahl: zählt keinen Abruf) | {'art': 'falsch', 'versuche', 'gesperrt'} | {'art': 'ratelimit'}. Eine Transaktion (atomar)."""
     jetzt = datetime.now(timezone.utc)
     iph = schluessel.ip_hmac(client_ip())
     th = schluessel.token_hash(token)
@@ -76,18 +77,24 @@ def _abrufen_intern(token: str, code: str) -> dict:
             c.execute("INSERT INTO zugang_unbekannt(token_hash, versuche, zeit) VALUES (?,?,?) ON CONFLICT(token_hash) DO UPDATE SET versuche=excluded.versuche, zeit=excluded.zeit", (th, versuche, _zeit(jetzt)))
             return {"art": "falsch", "versuche": versuche, "gesperrt": versuche >= MAX_VERSUCHE}
         link = dict(link)
-        daten = db.dokument_bytes(link["mandant_ref"], link["vorgang_id"], "S") if link["vstatus"] == "abgeschlossen" else None
-        if link["gesperrt"] or link["laeuft_ab"] <= _zeit(jetzt) or link["abrufe"] >= link["max_abrufe"] or daten is None:
+        docs = dokumente.rollen(link["mandant_ref"], link["vorgang_id"]) if link["vstatus"] == "abgeschlossen" else []
+        if link["gesperrt"] or link["laeuft_ab"] <= _zeit(jetzt) or link["abrufe"] >= link["max_abrufe"] or not docs:
             schluessel.code_pruefen(link["mandant_ref"], link["vkid"] or schluessel.kid(schluessel.aktuell()), link["vcode"] or "0" * 64, code if format_ok else "00000000")
             return {"art": "falsch", "versuche": MAX_VERSUCHE, "gesperrt": True}
         if format_ok and schluessel.code_pruefen(link["mandant_ref"], link["vkid"], link["vcode"], code):
+            wahl = dokument if dokument in docs else (docs[0] if len(docs) == 1 and dokument is None else None)
+            if wahl is None:
+                return {"art": "auswahl", "dokumente": [{"rolle": r, "titel": dokumente.TITEL[r]} for r in docs]}
+            daten = db.dokument_bytes(link["mandant_ref"], link["vorgang_id"], dokumente.ergebnis_rolle("dokument", wahl))
+            if daten is None:
+                return {"art": "falsch", "versuche": MAX_VERSUCHE, "gesperrt": True}
             # atomar zählen: zwei gleichzeitige Abrufe können das Limit nicht überschreiten
             if c.execute("UPDATE download_link SET abrufe=abrufe+1 WHERE id=? AND abrufe<max_abrufe AND gesperrt=0", (link["id"],)).rowcount != 1:
                 return {"art": "falsch", "versuche": MAX_VERSUCHE, "gesperrt": True}
             zaehler = link["abrufe"] + 1
             c.execute("INSERT INTO download_log(link_id, vorgang_id, mandant_ref, zeit, ip, zaehler) VALUES (?,?,?,?,?,?)",
                       (link["id"], link["vorgang_id"], link["mandant_ref"], db.jetzt(), kuerze_ip(client_ip()), zaehler))
-            db.audit_in(c, link["mandant_ref"], "mitglied", "dokument_abgerufen", "vorgang=%d abruf=%d" % (link["vorgang_id"], zaehler))
+            db.audit_in(c, link["mandant_ref"], "mitglied", "dokument_abgerufen", "vorgang=%d abruf=%d dokument=%s" % (link["vorgang_id"], zaehler, wahl))
             return {"art": "ok", "daten": daten, "zaehler": zaehler, "max": link["max_abrufe"]}
         versuche = link["fehlversuche"] + 1
         gesperrt = versuche >= MAX_VERSUCHE
@@ -103,18 +110,21 @@ def mitglied_download():
     if fehler:
         return fehler
     daten = request.get_json(silent=True)
-    if not isinstance(daten, dict) or set(daten) - {"token", "code"}:
+    if not isinstance(daten, dict) or set(daten) - {"token", "code", "dokument"}:
         return jsonify({"error": "eingabe_ungueltig"}), 400
     token = daten.get("token") if isinstance(daten.get("token"), str) else ""
     code = daten.get("code") if isinstance(daten.get("code"), str) else ""
+    dokument = daten.get("dokument") if isinstance(daten.get("dokument"), str) else None
     try:
-        e = _abrufen_intern(token[:256], code[:32])
+        e = _abrufen_intern(token[:256], code[:32], dokument)
     except schluessel.HauptschluesselFehlt:
         return jsonify({"error": "nicht_bereit"}), 503
     if e["art"] == "ratelimit":
         return jsonify({"error": "zu_viele_versuche", "meldung": "Zu viele Versuche. Bitte später erneut versuchen."}), 429
     if e["art"] == "falsch":
         return _falsch(e["versuche"], e["gesperrt"])
+    if e["art"] == "auswahl":
+        return jsonify({"dokumente": e["dokumente"]})
     antwort = _pdf_antwort(e["daten"], "dokument.pdf")
     antwort.headers["X-Abruf"] = str(e["zaehler"])                                  # nur Zahlen: "Abruf x von y" für die Seite
     antwort.headers["X-Abruf-Max"] = str(e["max"])
@@ -126,12 +136,19 @@ def mitglied_download():
 def stelle_download(vorgang_id, art):
     """Unterschriebenes Dokument ('dokument') oder Nachweisprotokoll ('nachweis'), unbegrenzt, nur eigener Mandant."""
     mandant = g.nutzer["mandant_ref"]
-    rolle = {"dokument": "S", "nachweis": "N"}.get(art)
     v = db.vorgang_lesen(mandant, vorgang_id)
-    if rolle is None or v is None or v["status"] != "abgeschlossen":
+    if art not in ("dokument", "nachweis") or v is None or v["status"] != "abgeschlossen":
         return jsonify({"error": "nicht_gefunden"}), 404
-    daten = db.dokument_bytes(mandant, vorgang_id, rolle)
+    docs = dokumente.rollen(mandant, vorgang_id)
+    angabe = request.args.get("dokument")
+    if angabe is None and len(docs) > 1:
+        return jsonify({"error": "dokument_waehlen", "meldung": "Bitte das Dokument wählen.", "dokumente": [{"rolle": r, "titel": dokumente.TITEL[r]} for r in docs]}), 400
+    rolle = docs[0] if angabe is None and docs else angabe
+    if rolle not in docs:
+        return jsonify({"error": "nicht_gefunden"}), 404
+    daten = db.dokument_bytes(mandant, vorgang_id, dokumente.ergebnis_rolle(art, rolle))
     if daten is None:
         return jsonify({"error": "nicht_gefunden"}), 404
-    audit("dokument_heruntergeladen", "id=%d art=%s" % (vorgang_id, art))
-    return _pdf_antwort(daten, "vorgang-%d-%s.pdf" % (vorgang_id, art))
+    audit("dokument_heruntergeladen", "id=%d art=%s dokument=%s" % (vorgang_id, art, rolle))
+    name = "vorgang-%d-%s.pdf" % (vorgang_id, art) if rolle == "M" or len(docs) == 1 else "vorgang-%d-%s-%s.pdf" % (vorgang_id, dokumente.TITEL[rolle].lower(), art)
+    return _pdf_antwort(daten, name)
