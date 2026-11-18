@@ -221,6 +221,19 @@ class TestBeraterRahmenStatik(unittest.TestCase):
         self.assertIsNotNone(regel)
         self.assertRegex(regel.group(1), r"overflow-wrap:\s*anywhere")                                  # Vorgangsname ohne Leerzeichen in der Überschrift (Chromium-Probe, Handy)
 
+    def test_rueckfrage_der_liste_steht_unter_der_zeile_und_verschiebt_sie_nicht(self):
+        # catrin 18.11.2026 (Pi, ca. 1000 px): die Rückfrage in der schmalen Aktionsspalte quetschte Name/Status zu Buchstabenspalten
+        css = (UI / "berater.css").read_text(encoding="utf-8")
+        regel = re.search(r"body\.berater \.rueckfrage\s*\{([^}]*)\}", css[css.index("body.berater .zeile-fehler"):])
+        self.assertIsNotNone(regel)
+        self.assertRegex(regel.group(1), r"grid-column:\s*1\s*/\s*-1")                                   # über die volle Zeilenbreite
+        self.assertNotRegex(regel.group(1), r"flex:")                                                    # nicht als Flex-Kind der Aktionsspalte
+        js = (UI / "vorgaenge.js").read_text(encoding="utf-8")
+        frage = js[js.index("function frage("):js.index("function zeigeZeilenFehler")]
+        self.assertIn("z.appendChild(box)", frage)                                                       # Kind der Zeile, nicht der Aktionsspalte
+        self.assertNotIn("aktion.appendChild(box)", frage)
+        self.assertNotRegex(frage, r"aktion\.textContent\s*=\s*''")                                      # Aktionsspalte behält ihre Breite
+
     def test_der_testdaten_balken_steht_nirgends_mehr_im_code(self):
         for datei in [d for d in UI.glob("*") if d.is_file()]:
             text = datei.read_text(encoding="utf-8")

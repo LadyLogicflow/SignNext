@@ -246,6 +246,8 @@ function zeile(v) {
 
 function zeichneAktion(z, aktion, v, info) {
     aktion.textContent = '';
+    const alteFrage = z.querySelector('.rueckfrage');
+    if (alteFrage) alteFrage.remove();
     if (info.knopf) {
         const klasse = 'btn btn-klein ' + (info.zweit ? 'btn-secondary' : 'btn-primary');
         if (info.neuerLink) aktion.appendChild(aktionsKnopf(info.knopf, klasse, () => frage(z, aktion, v, info, neuerLinkFrage(v), 'Ja, neuen Link senden', () => neuerLink(v, z))));
@@ -283,9 +285,11 @@ function zeichneAktion(z, aktion, v, info) {
 const loeschFrage = (v) => `„${vorgangsName(v)}“ endgültig löschen? Die Dokumente und der Vorgang werden entfernt. Das kann nicht rückgängig gemacht werden.`;
 const neuerLinkFrage = (v) => `Für „${vorgangsName(v)}“ einen neuen Link per E-Mail senden? Der bisherige Link funktioniert dann nicht mehr.`;
 
-// Rückfrage in der Zeile: erst nach "Ja" passiert etwas, "Abbrechen" stellt die Zeile wieder her
+// Rückfrage unter der Zeile (über die volle Breite, nicht in der Aktionsspalte): erst nach "Ja" passiert etwas, "Abbrechen" stellt die Zeile wieder her
 function frage(z, aktion, v, info, text, jaText, aktionJa, gefahr) {
-    aktion.textContent = '';
+    zeichneAktion(z, aktion, v, info);
+    const fehler = z.querySelector('.zeile-fehler');
+    if (fehler) fehler.remove();
     const box = document.createElement('div');
     box.className = 'rueckfrage';
     box.setAttribute('role', 'alert');
@@ -301,7 +305,7 @@ function frage(z, aktion, v, info, text, jaText, aktionJa, gefahr) {
     const nein = aktionsKnopf('Abbrechen', 'btn btn-klein btn-secondary', () => zeichneAktion(z, aktion, v, info));
     knoepfe.append(ja, nein);
     box.append(t, knoepfe);
-    aktion.appendChild(box);
+    z.appendChild(box);
 }
 
 function zeigeZeilenFehler(z, text) {
