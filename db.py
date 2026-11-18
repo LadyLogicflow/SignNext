@@ -316,7 +316,7 @@ def init(pfad: str) -> None:
                             ("abschluss_versuche", "INTEGER NOT NULL DEFAULT 0"), ("abgeschlossen_am", "TEXT"), ("aufbewahrung_tage", "INTEGER"), ("aufbewahrung_bis", "TEXT"),
                             ("erinnerungen_aus", "INTEGER NOT NULL DEFAULT 0"), ("link_sperre_gemeldet", "INTEGER"), ("bst_info_am", "TEXT"), ("mitglied_mail_am", "TEXT"),
                             ("mitglied_mail_versuche", "INTEGER NOT NULL DEFAULT 0"), ("vorwarnung_am", "TEXT"), ("geloescht_am", "TEXT"), ("geloescht_grund", "TEXT"),
-                            ("gezaehlt_am", "TEXT"), ("zaehlmonat", "TEXT"), ("name", "TEXT")):
+                            ("gezaehlt_am", "TEXT"), ("zaehlmonat", "TEXT"), ("name", "TEXT"), ("mitgliedsnr", "TEXT"), ("nachname", "TEXT")):
             if spalte not in vorhanden:
                 c.execute("ALTER TABLE vorgang ADD COLUMN %s %s" % (spalte, typ))
         for tabelle, spalte, typ in (("link", "token_enc", "TEXT"), ("stelle_einstellung", "aufbewahrung_tage", "INTEGER"),
@@ -370,7 +370,7 @@ REFERENZ = re.compile(r"^[A-Za-z0-9_-]{1,64}\Z")
 VORGANG_FELDER = ("status", "personen", "abgleich", "bestaetigt_von", "bestaetigt_am", "email_enc", "email_herkunft", "code_hmac", "code_kid", "datum_herkunft",
                   "personen_herkunft", "versendet_am", "versand_fehler", "versenden_seit", "unterschrieben_am", "abschluss_seit", "abschluss_versuche", "abgeschlossen_am",
                   "aufbewahrung_tage", "aufbewahrung_bis", "erinnerungen_aus", "link_sperre_gemeldet", "bst_info_am", "mitglied_mail_am", "mitglied_mail_versuche",
-                  "vorwarnung_am", "geloescht_am", "geloescht_grund", "gezaehlt_am", "zaehlmonat", "name")
+                  "vorwarnung_am", "geloescht_am", "geloescht_grund", "gezaehlt_am", "zaehlmonat", "name", "mitgliedsnr", "nachname")
 # Felder, die nach außen gehen dürfen (nie email_enc, code_hmac, code_kid)
 VORGANG_OEFFENTLICH = ("id", "status", "erstellt", "name", "personen", "abgleich", "bestaetigt_von", "bestaetigt_am", "email_herkunft", "datum_herkunft", "personen_herkunft",
                        "versendet_am", "versand_fehler", "unterschrieben_am", "abgeschlossen_am", "aufbewahrung_bis", "erinnerungen_aus", "geloescht_am", "geloescht_grund")
@@ -394,6 +394,13 @@ def vorgang_aendern(mandant_ref: str, vorgang_id: int, **felder) -> bool:
     with verbindung() as c:
         return c.execute("UPDATE vorgang SET %s WHERE id=? AND mandant_ref=?" % sets,
                          (*felder.values(), int(vorgang_id), mandant_ref)).rowcount == 1
+
+
+def dateiname_quellen(mandant_ref: str, vorgang_id: int) -> tuple:
+    """(Mitgliedsnummer, Nachname) des Vorgangs, nur für die Download-Dateinamen (catrin 18.11.2026). Personendaten: nie in Audit, Log, Mail oder Antworten; nur eigener Mandant."""
+    with verbindung() as c:
+        z = c.execute("SELECT mitgliedsnr, nachname FROM vorgang WHERE id=? AND mandant_ref=?", (int(vorgang_id), mandant_ref)).fetchone()
+    return (z["mitgliedsnr"], z["nachname"]) if z else (None, None)
 
 
 def vorgang_lesen(mandant_ref: str, vorgang_id: int) -> dict | None:
@@ -523,7 +530,7 @@ def mandant_loeschen(mandant_ref: str) -> dict:
             zahlen["vorgang"] = c.execute("DELETE FROM vorgang WHERE mandant_ref=? AND gezaehlt_am IS NULL", (mandant_ref,)).rowcount
             zahlen["zaehleintraege"] = c.execute("UPDATE vorgang SET status='geloescht', geloescht_am=COALESCE(geloescht_am, ?), geloescht_grund=COALESCE(geloescht_grund, 'vertragsende'), "
                                                  "name=NULL, email_enc=NULL, code_hmac=NULL, code_kid=NULL, abgleich=NULL, bestaetigt_von=NULL, email_herkunft=NULL, datum_herkunft=NULL, "
-                                                 "personen_herkunft=NULL, versand_fehler=NULL WHERE mandant_ref=? AND gezaehlt_am IS NOT NULL", (jetzt(), mandant_ref)).rowcount
+                                                 "personen_herkunft=NULL, versand_fehler=NULL, mitgliedsnr=NULL, nachname=NULL WHERE mandant_ref=? AND gezaehlt_am IS NOT NULL", (jetzt(), mandant_ref)).rowcount
         else:
             zahlen["vorgang"] = c.execute("DELETE FROM vorgang WHERE mandant_ref=?", (mandant_ref,)).rowcount
             zahlen["zaehleintraege"] = 0

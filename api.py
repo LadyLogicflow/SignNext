@@ -77,7 +77,10 @@ def vorgang(vorgang_id):
     with db.verbindung() as c:
         docs = dokumente.mit_stand(c, g.nutzer["mandant_ref"], vorgang_id, dokumente.liste(g.nutzer["mandant_ref"], vorgang_id, v["personen"]))
         dokumente.mit_abholung(docs, vorgang_id, dokumente.abholungen(c, g.nutzer["mandant_ref"]))
-    v["dokumente_fortschritt"] = [{k: d[k] for k in ("rolle", "titel", "erforderlich", "unterschrieben", "fertig", "abgeholt_am", "nachweis_abgeholt_am")} for d in docs]
+    mnr, nachname = db.dateiname_quellen(g.nutzer["mandant_ref"], vorgang_id)
+    for d in docs:                                                           # fertige Download-Namen (Mitgliedsnummer/Nachname selbst gehen nie nach außen)
+        d["dateiname"], d["nachweis_dateiname"] = dokumente.dateinamen(vorgang_id, d["rolle"], len(docs), mnr, nachname)
+    v["dokumente_fortschritt"] = [{k: d[k] for k in ("rolle", "titel", "erforderlich", "unterschrieben", "fertig", "abgeholt_am", "nachweis_abgeholt_am", "dateiname", "nachweis_dateiname")} for d in docs]
     v["ampel"] = dokumente.ampel(v["status"], docs)
     v["dokumente"] = [{k: d[k] for k in ("id", "rolle", "seiten", "groesse", "sha256", "stellen")} for d in db.dokumente_liste(g.nutzer["mandant_ref"], vorgang_id)]
     return jsonify(v)
@@ -107,9 +110,9 @@ MELDUNGEN = {
     "zu_viele_seiten": "Die PDF-Datei hat zu viele Seiten.",
     "aktive_inhalte": "Die PDF-Datei enthält aktive Inhalte und wird nicht angenommen.",
     "keine_textebene": "Die PDF-Datei enthält keinen Text (vermutlich ein Scan). Bitte die Datei direkt aus der Steuersoft bzw. Textverarbeitung als PDF erzeugen.",
-    "typ_unbekannt": "Das Dokument wurde nicht als Anschreiben oder Steuerprotokoll erkannt.",
+    "typ_unbekannt": "Das Dokument wurde nicht als Vollständigkeitserklärung oder Freizeichnungsprotokoll erkannt.",
     "stellen_unklar": "Die Unterschriftsstellen sind nicht eindeutig erkennbar.",
-    "typen_passen_nicht": "Es werden ein Anschreiben und ein Steuerprotokoll erwartet (je eines).",
+    "typen_passen_nicht": "Es werden eine Vollständigkeitserklärung und ein Freizeichnungsprotokoll erwartet (je eines).",
     "zeitueberschreitung": "Die Auswertung hat zu lange gedauert.",
     "analyse_fehlgeschlagen": "Die Auswertung ist fehlgeschlagen.",
     "nicht_gefunden": "Nicht gefunden.",

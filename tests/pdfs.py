@@ -208,4 +208,7 @@ def mit_javascript(daten: bytes, art: str) -> bytes:
 def ohne_vorgangsname(text: str) -> str:
     """Entfernt NUR das Feld ``name`` mit dem gewollt gespeicherten Namen des Mitglieds ('Vorname Name' aus dem PDF, catrin 18.11.2026). Taucht der Name irgendwo sonst auf, bleibt er stehen und die Prüfung schlägt an."""
     import re
-    return re.sub(r'"name":\s*"%s %s"' % (re.escape(VORNAME), re.escape(NAME)), '"name": ""', text)
+    text = re.sub(r'"name":\s*"%s %s"' % (re.escape(VORNAME), re.escape(NAME)), '"name": ""', text)
+    text = re.sub(r'"nachname":\s*"%s"' % re.escape(NAME), '"nachname": ""', text)                       # Download-Dateinamen (catrin 18.11.2026): Nachname und Mitgliedsnummer
+    text = re.sub(r'"(nachweis_)?dateiname":\s*"%s_%s_(FZ|VE)(_NWU)?\.pdf"' % (re.escape(MNR), re.escape(NAME)), '"dateiname": ""', text)      # fertige Download-Namen in der Vorgangsantwort
+    return re.sub(r'"mitgliedsnr":\s*"%s"' % re.escape(MNR), '"mitgliedsnr": ""', text)               # stehen gewollt nur in diesen beiden Feldern des Vorgangs

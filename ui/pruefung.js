@@ -48,10 +48,10 @@ async function api(method, path, body = null) {
 function dokumenteDesVorgangs() {
     const f = vorgang && Array.isArray(vorgang.dokumente_fortschritt) ? vorgang.dokumente_fortschritt : null;
     if (f && f.length) {
-        return f.map(d => ({rolle: d.rolle, titel: d.titel || DOK_TITEL[d.rolle] || String(d.rolle), erforderlich: d.erforderlich || [], unterschrieben: d.unterschrieben || [], fertig: !!d.fertig, abgeholt: d.abgeholt_am || d.dokument_abgeholt_am || null, nachweisAbgeholt: d.nachweis_abgeholt_am || null}));
+        return f.map(d => ({rolle: d.rolle, titel: d.titel || DOK_TITEL[d.rolle] || String(d.rolle), erforderlich: d.erforderlich || [], unterschrieben: d.unterschrieben || [], fertig: !!d.fertig, abgeholt: d.abgeholt_am || d.dokument_abgeholt_am || null, nachweisAbgeholt: d.nachweis_abgeholt_am || null, dateiname: d.dateiname || null, nachweisDateiname: d.nachweis_dateiname || null}));
     }
     const rollen = ((vorgang && vorgang.dokumente) || []).map(d => d.rolle);
-    return ['B', 'A'].filter(r => rollen.includes(r)).map(r => ({rolle: r, titel: DOK_TITEL[r], erforderlich: [], unterschrieben: [], fertig: false, abgeholt: null, nachweisAbgeholt: null}));
+    return ['B', 'A'].filter(r => rollen.includes(r)).map(r => ({rolle: r, titel: DOK_TITEL[r], erforderlich: [], unterschrieben: [], fertig: false, abgeholt: null, nachweisAbgeholt: null, dateiname: null, nachweisDateiname: null}));
 }
 
 // Ampel des Vorgangs (rot/gelb/gruen vom Server); ohne Wert (null = noch nicht versendet) bleibt die Stelle leer
@@ -585,7 +585,13 @@ function abholenBloecke() {
     });
 }
 
+// Dateiname: den Namen liefert der Server je Dokument (dateiname, nachweis_dateiname); fehlt er, bleibt der bisherige Name
 function dateiName(art, rolle, titel) {
+    const dok = dokumenteDesVorgangs().find(d => !rolle || d.rolle === rolle);
+    const vomServer = art === 'nachweis'
+        ? ((dok && dok.nachweisDateiname) || (!rolle && vorgang.nachweis_dateiname))
+        : ((dok && dok.dateiname) || (!rolle && vorgang.dateiname));
+    if (typeof vomServer === 'string' && vomServer.trim()) return vomServer.trim();
     return rolle ? `${art}_${String(titel || rolle).replace(/[^A-Za-z0-9_-]+/g, '_')}_${vorgangId}.pdf` : `${art}_${vorgangId}.pdf`;
 }
 

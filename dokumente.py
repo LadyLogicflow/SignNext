@@ -6,8 +6,11 @@ Rollen der Ergebnisse: 'S_<Rolle>' = unterschriebenes Dokument, 'N_<Rolle>' = Na
 import abgleich
 import db
 
-TITEL = {"B": "Anschreiben", "A": "Protokoll", "M": "Dokument"}
+TITEL = {"B": "Vollständigkeitserklärung", "A": "Freizeichnungsprotokoll", "M": "Dokument"}      # Anzeige (catrin 18.11.2026 14:47)
+NACHWEIS_TITEL = {"B": "Anschreiben", "A": "Protokoll"}      # Zeile "Dokument: …" im Nachweis: bleibt, bis catrin den neuen Nachweis-Wortlaut freigibt
+ERSATZ_NAME = {"B": "anschreiben", "A": "protokoll"}          # Ersatz-Dateinamen (vorgang-<id>-<anschreiben|protokoll>-…): unabhängig vom Anzeige-Titel
 REIHENFOLGE = ("B", "A")
+KUERZEL = {"A": "FZ", "B": "VE"}             # Dateinamen (catrin 18.11.2026): A = Freizeichnungsprotokoll, B = Vollständigkeitserklärung (Anschreiben)
 
 
 def rollen(mandant_ref: str, vorgang_id: int) -> list:
@@ -19,6 +22,27 @@ def rollen(mandant_ref: str, vorgang_id: int) -> list:
     if r:
         return r
     return [x for x in REIHENFOLGE if "S_" + x in vorhanden]
+
+
+def _namensteil(nachname) -> str:
+    """Nachname für den Dateinamen: Steuerzeichen und / \\ : * ? " < > | _ fallen weg (werden zu Leerzeichen), Umlaute bleiben, Leerraum zusammengezogen, höchstens 60 Zeichen."""
+    import re
+    if not isinstance(nachname, str):
+        return ""
+    t = " ".join(re.sub(r'[\x00-\x1f\x7f-\x9f/\\:*?"<>|_]+', " ", nachname).split()).strip(" .")
+    return t[:60].strip(" .")
+
+
+def dateinamen(vorgang_id: int, rolle: str, anzahl: int, mitgliedsnr, nachname) -> tuple:
+    """(Dateiname des unterschriebenen Dokuments, Dateiname des Nachweises). ``<Mitgliedsnummer>_<Nachname>_<FZ|VE>[_NWU].pdf``; fehlt die siebenstellige Nummer oder der Nachname
+    (und bei zusammengeführten Altvorgängen, Rolle 'M') gilt der bisherige Name ``vorgang-<id>[-<titel>]-<dokument|nachweis>.pdf``. ``anzahl`` = Zahl der Dokumente des Vorgangs."""
+    import re
+    teil = _namensteil(nachname)
+    if rolle in KUERZEL and teil and isinstance(mitgliedsnr, str) and re.fullmatch(r"\d{7}", mitgliedsnr):
+        basis = "%s_%s_%s" % (mitgliedsnr, teil, KUERZEL[rolle])
+        return basis + ".pdf", basis + "_NWU.pdf"
+    mitte = "" if rolle == "M" or anzahl == 1 else "-" + ERSATZ_NAME[rolle]
+    return "vorgang-%d%s-dokument.pdf" % (vorgang_id, mitte), "vorgang-%d%s-nachweis.pdf" % (vorgang_id, mitte)
 
 
 def ergebnis_rolle(art: str, rolle: str) -> str:

@@ -50,7 +50,7 @@ function vorgangMitAbholstand() {
     if (!cfg.abholSicht) return zustand.v;
     const liste = dokumente().map(d => {
         const a = zustand.abgeholt[d.rolle] || {};
-        return {rolle: d.rolle, titel: d.titel, erforderlich: d.erforderlich, unterschrieben: d.erforderlich.slice(), fertig: true, abgeholt_am: a.dokument || null, dokument_abgeholt_am: a.dokument || null, nachweis_abgeholt_am: a.nachweis || null};
+        return {rolle: d.rolle, titel: d.titel, erforderlich: d.erforderlich, unterschrieben: d.erforderlich.slice(), fertig: true, abgeholt_am: a.dokument || null, dokument_abgeholt_am: a.dokument || null, nachweis_abgeholt_am: a.nachweis || null, dateiname: d.dateiname, nachweis_dateiname: d.nachweis_dateiname};
     });
     const alle = liste.every(d => d.abgeholt_am);
     const ampel = cfg.ampel !== undefined ? cfg.ampel : (alle ? 'gruen' : 'gelb');

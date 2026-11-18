@@ -75,6 +75,23 @@ def name_aus_werten(werte: dict) -> str | None:
     return " ".join(text.split())[:NAME_MAX].strip() or None
 
 
+def _bereinigt(text) -> str | None:
+    import unicodedata
+    if not isinstance(text, str):
+        return None
+    text = "".join(" " if unicodedata.category(ch)[0] in ("C", "Z") else ch for ch in text)
+    return " ".join(text.split())[:NAME_MAX].strip() or None
+
+
+def dateiname_felder(aus_a: dict, aus_b: dict) -> tuple:
+    """(Mitgliedsnummer, Nachname) für die Download-Dateinamen: 7-stellige Nummer und Nachname der ersten Person, zuerst aus dem Protokoll (A), sonst aus dem Anschreiben (B);
+    fehlt etwas, bleibt es None (die Dateinamen fallen dann auf die bisherigen zurück). Enthält Personendaten: nie in Audit, Log oder Mail."""
+    import re
+    nr = next((w["mitgliedsnr"] for w in (aus_a, aus_b) if isinstance(w.get("mitgliedsnr"), str) and re.fullmatch(r"\d{7}", w["mitgliedsnr"])), None)
+    nachname = next((n for n in (_bereinigt(aus_a.get("name")), _bereinigt(aus_b.get("name"))) if n), None)
+    return nr, nachname
+
+
 def anlegen(mandant_ref: str, dateien: list, namen: list | None = None) -> dict:
     """1 oder 2 PDFs (Bytes) → neuer Vorgang. Wirft Fehler(code). Der Typ kommt aus dem Inhalt, nie aus dem Dateinamen.
     Zwei Dokumente müssen je eines vom Typ A und B sein. Bei 2 von 3 Treffern wird sofort zusammengeführt, sonst muss die Beratungsstelle bestätigen."""
@@ -89,6 +106,7 @@ def anlegen(mandant_ref: str, dateien: list, namen: list | None = None) -> dict:
     name_je_typ = {e["typ"]: name_aus_dateiname(n) for e, n in zip(ergebnisse, namen)}
     aus_pdf = {typ: name_aus_werten(e["werte"]) for typ, (_, e) in by.items()}       # catrin 18.11.: der Name des Mitglieds, wie ihn auch die Prüfansicht nimmt (Protokoll, sonst Anschreiben)
     name = aus_pdf.get("A") or aus_pdf.get("B") or name_je_typ.get("A") or name_je_typ.get("B")      # Ersatz: Dateiname
+    mitgliedsnr, nachname = dateiname_felder(by["A"][1]["werte"] if "A" in by else {}, by["B"][1]["werte"] if "B" in by else {})
     vorgang_id = db.vorgang_anlegen(mandant_ref)
     try:
         for typ, (d, e) in sorted(by.items()):
@@ -100,7 +118,7 @@ def anlegen(mandant_ref: str, dateien: list, namen: list | None = None) -> dict:
         else:
             ab = abgleich.abgleichen(by["A"][1]["werte"], by["B"][1]["werte"])
             status = "bereit" if ab["status"] == "automatisch" else "bestaetigung_noetig"
-        db.vorgang_aendern(mandant_ref, vorgang_id, status=status, personen=personen, abgleich=json.dumps(ab), name=name)
+        db.vorgang_aendern(mandant_ref, vorgang_id, status=status, personen=personen, abgleich=json.dumps(ab), name=name, mitgliedsnr=mitgliedsnr, nachname=nachname)
     except Exception:
         loeschen(mandant_ref, vorgang_id)
         raise

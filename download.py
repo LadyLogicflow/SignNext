@@ -34,9 +34,22 @@ def link_erzeugen(c, mandant_ref: str, vorgang_id: int) -> str:
     return token
 
 
+_UMLAUTE = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "Ä": "Ae", "Ö": "Oe", "Ü": "Ue", "ß": "ss"})
+
+
+def _content_disposition(dateiname: str) -> str:
+    """Nur ASCII im einfachen ``filename`` (Ersatz, Umlaute ausgeschrieben), der echte Name mit Umlauten steht in ``filename*`` (RFC 5987, UTF-8)."""
+    import re
+    import unicodedata
+    from urllib.parse import quote
+    ascii_name = unicodedata.normalize("NFKD", dateiname.translate(_UMLAUTE)).encode("ascii", "ignore").decode("ascii")
+    ascii_name = re.sub(r"[^A-Za-z0-9._ -]", "_", ascii_name)
+    return 'attachment; filename="%s"; filename*=UTF-8\'\'%s' % (ascii_name, quote(dateiname, safe=""))
+
+
 def _pdf_antwort(daten: bytes, dateiname: str) -> Response:
     r = Response(daten, mimetype="application/pdf")
-    r.headers["Content-Disposition"] = 'attachment; filename="%s"' % dateiname
+    r.headers["Content-Disposition"] = _content_disposition(dateiname)
     r.headers["Cache-Control"] = "no-store, private"
     r.headers["Pragma"] = "no-cache"
     r.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
@@ -151,5 +164,6 @@ def stelle_download(vorgang_id, art):
         return jsonify({"error": "nicht_gefunden"}), 404
     db.abholung_vermerken(mandant, vorgang_id, rolle, art)                          # Ampel: nur was tatsächlich ausgeliefert wird, zählt als abgeholt
     audit("dokument_heruntergeladen", "id=%d art=%s dokument=%s" % (vorgang_id, art, rolle))
-    name = "vorgang-%d-%s.pdf" % (vorgang_id, art) if rolle == "M" or len(docs) == 1 else "vorgang-%d-%s-%s.pdf" % (vorgang_id, dokumente.TITEL[rolle].lower(), art)
-    return _pdf_antwort(daten, name)
+    mnr, nachname = db.dateiname_quellen(mandant, vorgang_id)
+    dok_name, nachweis_name = dokumente.dateinamen(vorgang_id, rolle, len(docs), mnr, nachname)
+    return _pdf_antwort(daten, dok_name if art == "dokument" else nachweis_name)

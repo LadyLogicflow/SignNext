@@ -225,7 +225,7 @@ def _abschliessen(mandant_ref: str, vorgang_id: int) -> None:
         hash_vorher = hashlib.sha256(quelle).hexdigest()
         fertig = einbetten(quelle, stellen, v["personen"], {u["person"]: bytes(u["bild"]) for u in zeilen})
         hash_nachher = hashlib.sha256(fertig).hexdigest()
-        titel = None if d["rolle"] == "M" else d["titel"]
+        titel = None if d["rolle"] == "M" else dokumente.NACHWEIS_TITEL[d["rolle"]]
         protokoll = nachweis_pdf(vorgang_id, hash_vorher, hash_nachher, zeilen, jetzt, all(texte.FREIGABE_OFFEN not in (u["text_kennung"] or "") for u in zeilen), titel)
         ergebnisse.append((d["rolle"], fertig, hash_nachher, protokoll))
     for rolle, fertig, hash_nachher, protokoll in ergebnisse:

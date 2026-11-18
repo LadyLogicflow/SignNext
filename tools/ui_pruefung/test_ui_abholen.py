@@ -169,5 +169,41 @@ class TestAlleHerunterladen(unittest.TestCase):
         self.assertEqual(v(mehr)["abholen"]["alles"]["text"], "Alles herunterladen")
 
 
+@unittest.skipUnless(BEREIT, HINWEIS)
+class TestDateinamenVomServer(unittest.TestCase):
+    """catrin 18.11.2026 (14:14): die Namen der Downloads kommen vom Server (dateiname, nachweis_dateiname je Dokument); fehlen sie, bleiben die bisherigen Namen."""
+    NAMEN = [{"rolle": "B", "titel": "Anschreiben", "seiten": 2, "dateiname": "4711_Muster_VE.pdf", "nachweis_dateiname": "4711_Muster_VE_NWU.pdf"},
+             {"rolle": "A", "titel": "Protokoll", "seiten": 3, "dateiname": "4711_Muster_FZ.pdf", "nachweis_dateiname": "4711_Muster_FZ_NWU.pdf"}]
+    KLICK = lambda self, t: {"op": "klick_text", "sel": ".abholen-block button", "text": t, "warte": 400}
+
+    def api(self, dokumente):
+        return dict(vorg(ampel="gelb", **FERTIG), dokumente=dokumente, abholSicht=True)
+
+    def test_einzelknoepfe_benutzen_die_namen_des_servers(self):
+        ops = [self.KLICK(t) for t in ("Anschreiben herunterladen", "Nachweis zum Anschreiben herunterladen", "Protokoll herunterladen", "Nachweis zum Protokoll herunterladen")]
+        o = lauf(seite=SEITE, api=self.api(self.NAMEN), ops=ops)
+        self.assertEqual(v(o, 3)["downloads"], ["4711_Muster_VE.pdf", "4711_Muster_VE_NWU.pdf", "4711_Muster_FZ.pdf", "4711_Muster_FZ_NWU.pdf"])
+
+    def test_alles_herunterladen_benutzt_die_namen_des_servers(self):
+        o = lauf(seite=SEITE, api=self.api(self.NAMEN), ops=[{"op": "klick_id", "id": "btn-alles-dl", "warte": 100}, {"op": "warten", "warte": 3500}])
+        self.assertEqual(v(o, 1)["downloads"], ["4711_Muster_VE.pdf", "4711_Muster_VE_NWU.pdf", "4711_Muster_FZ.pdf", "4711_Muster_FZ_NWU.pdf"])
+        self.assertEqual(o["fehler_js"], [])
+
+    def test_fehlende_felder_fallen_auf_die_bisherigen_namen_zurueck(self):
+        teil = [dict(self.NAMEN[0], nachweis_dateiname=None), {"rolle": "A", "titel": "Protokoll", "seiten": 3, "dateiname": "  "}]          # leer, None, nur Leerzeichen
+        ops = [self.KLICK(t) for t in ("Anschreiben herunterladen", "Nachweis zum Anschreiben herunterladen", "Protokoll herunterladen", "Nachweis zum Protokoll herunterladen")]
+        o = lauf(seite=SEITE, api=self.api(teil), ops=ops)
+        self.assertEqual(v(o, 3)["downloads"], ["4711_Muster_VE.pdf", "nachweis_Anschreiben_1.pdf", "dokument_Protokoll_1.pdf", "nachweis_Protokoll_1.pdf"])
+
+    def test_ein_dokument_benutzt_den_namen_aus_dokumente_fortschritt_sonst_den_obersten(self):
+        eins = [{"rolle": "B", "titel": "Anschreiben", "seiten": 2, "dateiname": "4711_Muster_FZ.pdf", "nachweis_dateiname": "4711_Muster_FZ_NWU.pdf"}]
+        o = lauf(seite=SEITE, api=self.api(eins), ops=[{"op": "klick_id", "id": "btn-dl-dokument", "warte": 300}, {"op": "klick_id", "id": "btn-dl-nachweis", "warte": 300}])
+        self.assertEqual(v(o, 1)["downloads"], ["4711_Muster_FZ.pdf", "4711_Muster_FZ_NWU.pdf"])
+        ohne = lauf(seite=SEITE, api=vorg(dateiname="4711_Muster_VE.pdf", nachweis_dateiname="4711_Muster_VE_NWU.pdf", **FERTIG), ops=[{"op": "klick_id", "id": "btn-dl-dokument", "warte": 300}, {"op": "klick_id", "id": "btn-dl-nachweis", "warte": 300}])
+        self.assertEqual(v(ohne, 1)["downloads"], ["4711_Muster_VE.pdf", "4711_Muster_VE_NWU.pdf"])
+        alt = lauf(seite=SEITE, api=dict(vorg(**FERTIG)), ops=[{"op": "klick_id", "id": "btn-dl-dokument", "warte": 300}])
+        self.assertEqual(v(alt, 0)["downloads"], ["dokument_1.pdf"])
+
+
 if __name__ == "__main__":
     unittest.main()
