@@ -81,7 +81,7 @@ class TestBeraterGegenEchtesBackend(DemoMail):
         with db.verbindung() as c:
             self.assertEqual(c.execute("SELECT status FROM vorgang WHERE id=?", (vid,)).fetchone()[0], "versendet")
         zugangstext = ende["status"]["link_box"]["link"].split("#", 1)[1]
-        r = self.c.post("/api/v1/zugang/pruefen", json={"token": zugangstext, "code": "010260"}, headers={"Origin": "https://signnext.example"})
+        r = self.c.post("/api/v1/zugang/pruefen", json={"token": zugangstext, "code": "01021960"}, headers={"Origin": "https://signnext.example"})
         self.assertEqual(r.status_code, 200)                                                        # der angezeigte Link öffnet den Vorgang
 
     def test_mail_zugang_zeigt_hinweis_und_fehler_am_feld(self):

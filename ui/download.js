@@ -21,7 +21,7 @@ function validateCode() {
     const input = document.getElementById('code').value;
     const cleaned = input.replace(/\./g, '');
 
-    if (cleaned.length === 6 && /^\d{6}$/.test(cleaned)) {
+    if (cleaned.length === 8 && /^\d{8}$/.test(cleaned)) {
         hideError('code-error');
         return true;
     }
@@ -32,8 +32,8 @@ async function downloadFile(e) {
     e.preventDefault();
 
     const code = document.getElementById('code').value.replace(/\./g, '');
-    if (!/^\d{6}$/.test(code)) {
-        showError('code-error', 'Bitte im Format TT.MM.JJ eingeben');
+    if (!/^\d{8}$/.test(code)) {
+        showError('code-error', 'Bitte im Format TT.MM.JJJJ eingeben (acht Ziffern)');
         return;
     }
 

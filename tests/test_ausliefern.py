@@ -235,6 +235,12 @@ class TestBeraterRahmenStatik(unittest.TestCase):
             for wort in verboten:
                 self.assertNotIn(wort, text, (datei.name, wort))
 
+    def test_der_zugangscode_hat_ueberall_acht_ziffern(self):
+        # catrin 18.11.2026: TTMMJJJJ statt sechs Ziffern
+        for datei in [d for d in UI.glob("*") if d.is_file()]:
+            text = datei.read_text(encoding="utf-8")
+            self.assertNotRegex(text, r"\\d\{6\}|6 Ziffern|sechs Ziffern|TT\.MM\.JJ(?!JJ)(?!\w)", datei.name)
+
     def test_karten_bleiben_am_handy_nebeneinander(self):
         css = (UI / "berater.css").read_text(encoding="utf-8")
         schmal = css.split("@media (max-width: 700px)", 1)[1]

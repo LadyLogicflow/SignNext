@@ -3,9 +3,12 @@ Die Schnittstelle wird vom Treiber (drive_sn.js) nach der Schnittstellenbeschrei
 import unittest
 from urllib.parse import unquote
 
+from pathlib import Path
+
 from ui_hilfen import BEREIT, HINWEIS, lauf
 
 PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+UI = Path(__file__).resolve().parent.parent.parent / "ui"
 QR_SVG = '<svg viewBox="0 0 10 10"><title>QR-Code</title><rect width="10" height="10" fill="#000"/></svg>'                      # wie das Backend (segno): ohne Namensraum
 SATZ = "Sie können am Computer mit der Maus oder am Smartphone oder Tablet mit dem Finger unterschreiben."
 STRICH = [[10, 10], [50, 30], [90, 10]]
@@ -13,7 +16,7 @@ STRICH = [[10, 10], [50, 30], [90, 10]]
 
 def bis_zum_feld(*weiter):
     """Geburtsdatum, alle Seiten angezeigt, 'Vollständig gelesen': danach steht der Schritt mit dem Zeichenfeld."""
-    return [{"op": "code", "wert": "01.02.60", "warte": 700}, {"op": "seiten_geladen", "warte": 100}, {"op": "gelesen", "warte": 600}, *weiter]
+    return [{"op": "code", "wert": "01.02.1960", "warte": 700}, {"op": "seiten_geladen", "warte": 100}, {"op": "gelesen", "warte": 600}, *weiter]
 
 
 def posts(schritt, pfad_ende):
@@ -78,7 +81,7 @@ class TestZeichenfeld(unittest.TestCase):
         self.assertIn("Sitzung ist abgelaufen", z["meldung"])
         self.assertTrue(z["neu_laden"])                                                         # Knopf "Seite neu laden" statt automatischem Neuladen
         self.assertEqual(z["alerts"], [])
-        seiten = lauf(seite="/u", fragment="#tok", api={"seitenFehler": True}, ops=[{"op": "code", "wert": "01.02.60", "warte": 700}])
+        seiten = lauf(seite="/u", fragment="#tok", api={"seitenFehler": True}, ops=[{"op": "code", "wert": "01.02.1960", "warte": 700}])
         self.assertTrue(seiten["schritte"][0]["zustand"]["meldung"].startswith("Fehler beim Laden der Seiten"))
         self.assertEqual(seiten["schritte"][0]["zustand"]["alerts"], [])
         server = lauf(seite="/u", fragment="#tok", api={"unterschriftFehler": {"status": 422, "error": "bild_leer", "meldung": "Das Bild ist leer."}},
@@ -87,7 +90,7 @@ class TestZeichenfeld(unittest.TestCase):
         self.assertEqual(s["fehler_unterschrift"], "Das Bild ist leer.")
         self.assertEqual(s["alerts"], [])
         self.assertFalse(s["knoepfe"]["unterschreiben"]["gesperrt"])                            # nach dem Fehler wieder bedienbar
-        code = lauf(seite="/u", fragment="#tok", ops=[{"op": "code", "wert": "01.01.01", "warte": 500}])
+        code = lauf(seite="/u", fragment="#tok", ops=[{"op": "code", "wert": "01.01.2001", "warte": 500}])
         self.assertEqual(code["schritte"][0]["zustand"]["fehler_code"], "Das Geburtsdatum stimmt nicht")
 
 
@@ -257,34 +260,46 @@ class TestKeinTestversionAnschein(unittest.TestCase):
 
 @unittest.skipUnless(BEREIT, HINWEIS)
 class TestCodeFeld(unittest.TestCase):
-    """Das Geburtsdatum als Zugangscode: mit UND ohne Punkte (die Mail sagt "ohne Punkte"), der Server bekommt immer 6 Ziffern."""
-    GUELTIG = ["010190", "01.01.90", "01.0190", "0101.90"]
-    UNGUELTIG = ["0101", "01.01.9", "0101900", "01-01-90", "abcdef", "01.01.9a"]
+    """Das Geburtsdatum als Zugangscode: acht Ziffern (TTMMJJJJ), mit UND ohne Punkte; der Server bekommt immer genau 8 Ziffern (catrin 18.11.2026)."""
+    GUELTIG = ["01011990", "01.01.1990", "01.011990", "0101.1990"]
+    UNGUELTIG = ["010190", "01.01.90", "0101199", "010119900", "01-01-1990", "abcdefgh", "01.01.199a"]
+    FEHLER = "Bitte im Format TT.MM.JJJJ eingeben (acht Ziffern)"
+
+    def test_feld_beschriftung_platzhalter_und_hinweis(self):
+        for seite in ("/u", "/d"):
+            html = (UI / ("unterschrift.html" if seite == "/u" else "download.html")).read_text(encoding="utf-8")
+            self.assertIn("Geburtsdatum (TT.MM.JJJJ)", html, seite)
+            self.assertIn('placeholder="01.01.1990"', html, seite)
+            self.assertIn('maxlength="10"', html, seite)
+            self.assertIn("acht Ziffern", html, seite)
+            self.assertNotRegex(html, r"TT\.MM\.JJ(?!JJ)|6 Ziffern|sechs Ziffern|\\d\{6\}", seite)
 
     def test_unterschriftsseite_akzeptiert_beide_schreibweisen(self):
         for eingabe in self.GUELTIG:
             o = lauf(seite="/u", fragment="#tok", ops=[{"op": "wert_id", "id": "code", "wert": eingabe, "warte": 50}, {"op": "code", "wert": eingabe, "warte": 300}])
             self.assertTrue(o["schritte"][0]["zustand"]["code_gueltig"], eingabe)                          # der Browser lässt das Absenden zu
             post = [r for r in o["schritte"][1]["zustand"]["requests"] if r["p"] == "/api/v1/zugang/pruefen"]
-            self.assertEqual([r["body"] for r in post], [{"token": "tok", "code": "010190"}], eingabe)      # genau 6 Ziffern, ohne Punkte
+            self.assertEqual([r["body"] for r in post], [{"token": "tok", "code": "01011990"}], eingabe)    # genau 8 Ziffern, ohne Punkte
 
-    def test_unterschriftsseite_weist_falsche_eingaben_ab(self):
+    def test_unterschriftsseite_weist_falsche_eingaben_ab_auch_das_alte_sechsstellige_format(self):
         for eingabe in self.UNGUELTIG:
             o = lauf(seite="/u", fragment="#tok", ops=[{"op": "wert_id", "id": "code", "wert": eingabe, "warte": 50}, {"op": "code", "wert": eingabe, "warte": 300}])
             self.assertFalse(o["schritte"][0]["zustand"]["code_gueltig"], eingabe)
             post = [r for r in o["schritte"][1]["zustand"]["requests"] if r["p"] == "/api/v1/zugang/pruefen"]
             self.assertEqual(post, [], eingabe)
-            self.assertEqual(o["schritte"][1]["zustand"]["code_fehler"], "Bitte im Format TT.MM.JJ eingeben", eingabe)
+            self.assertEqual(o["schritte"][1]["zustand"]["code_fehler"], self.FEHLER, eingabe)
 
     def test_downloadseite_akzeptiert_beide_schreibweisen(self):
         for eingabe in self.GUELTIG:
             o = lauf(seite="/d", fragment="#tok", ops=[{"op": "wert_id", "id": "code", "wert": eingabe, "warte": 50}, {"op": "code", "form": "form-download", "wert": eingabe, "warte": 300}])
             self.assertTrue(o["schritte"][0]["zustand"]["code_gueltig"], eingabe)
             post = [r for r in o["schritte"][1]["zustand"]["requests"] if r["p"] == "/api/v1/download"]
-            self.assertEqual([r["body"] for r in post], [{"token": "tok", "code": "010190"}], eingabe)
+            self.assertEqual([r["body"] for r in post], [{"token": "tok", "code": "01011990"}], eingabe)
         for eingabe in self.UNGUELTIG:
-            o = lauf(seite="/d", fragment="#tok", ops=[{"op": "code", "form": "form-download", "wert": eingabe, "warte": 300}])
-            self.assertEqual([r for r in o["schritte"][0]["zustand"]["requests"] if r["p"] == "/api/v1/download"], [], eingabe)
+            o = lauf(seite="/d", fragment="#tok", ops=[{"op": "wert_id", "id": "code", "wert": eingabe, "warte": 50}, {"op": "code", "form": "form-download", "wert": eingabe, "warte": 300}])
+            self.assertFalse(o["schritte"][0]["zustand"]["code_gueltig"], eingabe)
+            self.assertEqual([r for r in o["schritte"][1]["zustand"]["requests"] if r["p"] == "/api/v1/download"], [], eingabe)
+            self.assertEqual(o["schritte"][1]["zustand"]["code_fehler"], self.FEHLER, eingabe)
 
 
 if __name__ == "__main__":

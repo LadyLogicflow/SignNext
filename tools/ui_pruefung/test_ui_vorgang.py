@@ -168,18 +168,18 @@ class TestSenden(unittest.TestCase):
         self.assertEqual(o["schritte"][2]["zustand"]["alerts"], [])
 
     def test_im_demo_stehen_link_und_qr_am_bildschirm(self):
-        demo = {"link": "https://sn.example/u#abc", "qr_svg": QR_SVG, "geburtsdatum_hinweis": "Geburtsdatum für den Link: 01.02.60", "ohne_mail": False}
+        demo = {"link": "https://sn.example/u#abc", "qr_svg": QR_SVG, "geburtsdatum_hinweis": "Geburtsdatum für den Link: 01.02.1960", "ohne_mail": False}
         o = lauf(seite=SEITE, api={"me": DEMO, "versenden": {"status": 200, "body": {"ok": True, "demo": demo}}}, ops=self.ZUM_SENDEN + [{"op": "klick_id", "id": "btn-versenden", "warte": 700}])
         box = seite(o, 2)["status"]["link_box"]
         self.assertEqual((box["link"], box["link_nur_lesen"]), ("https://sn.example/u#abc", True))
-        self.assertIn("Geburtsdatum für den Link: 01.02.60", box["text"])
+        self.assertIn("Geburtsdatum für den Link: 01.02.1960", box["text"])
         self.assertEqual((box["qr"]["tag"], unquote(box["qr"]["src"].split(",", 1)[1])), ("IMG", QR_ALS_BILD))      # nur als Bild, nie als Markup
         ohne = lauf(seite=SEITE, ops=self.ZUM_SENDEN + [{"op": "klick_id", "id": "btn-versenden", "warte": 700}])
         self.assertIsNone(seite(ohne, 2)["status"]["link_box"])
 
     def test_scheitert_die_mail_wird_ohne_mail_angeboten_nur_wenn_der_server_es_sagt(self):
         mail_weg = {"status": 502, "body": {"error": "mail_verbindung", "meldung": "Der Mailserver ist nicht erreichbar.", "fallback": "ohne_mail"}}
-        demo = {"link": "https://sn.example/u#ohne", "qr_svg": QR_SVG, "geburtsdatum_hinweis": "Geburtsdatum für den Link: 01.02.60", "ohne_mail": True}
+        demo = {"link": "https://sn.example/u#ohne", "qr_svg": QR_SVG, "geburtsdatum_hinweis": "Geburtsdatum für den Link: 01.02.1960", "ohne_mail": True}
         o = lauf(seite=SEITE, api={"me": DEMO, "versenden": mail_weg, "versendenOhneMail": {"status": 200, "body": {"ok": True, "demo": demo}}},
                  ops=self.ZUM_SENDEN + [{"op": "klick_id", "id": "btn-versenden", "warte": 500}, {"op": "klick_id", "id": "btn-ohne-mail", "warte": 700}])
         fehl = seite(o, 2)["senden"]
@@ -205,7 +205,7 @@ class TestSenden(unittest.TestCase):
         self.assertEqual(seite(o, 3)["panel"], ["senden"])
 
     def test_vor_ort_zeigt_link_und_qr_ohne_mail(self):
-        demo = {"link": "https://sn.example/u#vorort", "qr_svg": QR_SVG, "geburtsdatum_hinweis": "Geburtsdatum für den Link: 01.02.60", "ohne_mail": True}
+        demo = {"link": "https://sn.example/u#vorort", "qr_svg": QR_SVG, "geburtsdatum_hinweis": "Geburtsdatum für den Link: 01.02.1960", "ohne_mail": True}
         o = lauf(seite=SEITE, api={"me": DEMO, "versendenOhneMail": {"status": 200, "body": {"ok": True, "demo": demo}}}, ops=self.ZUM_SENDEN + [{"op": "klick_id", "id": "btn-vor-ort", "warte": 700}])
         self.assertEqual(anfragen(o, 2, "POST"), [("POST", "/api/v1/vorgaenge/1/versenden", {"bestaetigt": True, "ohne_mail": True})])
         self.assertEqual(seite(o, 2)["status"]["link_box"]["link"], "https://sn.example/u#vorort")

@@ -21,9 +21,9 @@
                     </div>
                     <form id="form-download">
                         <div class="form-group">
-                            <label for="code">Geburtsdatum</label>
-                            <input type="text" id="code" placeholder="TT.MM.JJ" maxlength="8" required>
-                            <small>Format: TT.MM.JJ</small>
+                            <label for="code">Geburtsdatum (TT.MM.JJJJ)</label>
+                            <input type="text" id="code" placeholder="01.01.1990" maxlength="10" required pattern="\d{2}\.?\d{2}\.?\d{4}">
+                            <small>Geben Sie Ihr Geburtsdatum als acht Ziffern ein, mit oder ohne Punkte (zum Beispiel 01011990 oder 01.01.1990)</small>
                             <div id="code-error" class="error hidden"></div>
                             <div id="versuch-info" class="warning hidden"></div>
                         </div>

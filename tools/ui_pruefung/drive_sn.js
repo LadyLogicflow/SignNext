@@ -56,7 +56,7 @@ function api(req, res, pfad, body) {
     // Mitglied am Computer (Cookie sn_zugang)
     if (pfad === '/api/v1/download' && m === 'POST') return fehler(401, 'angaben_stimmen_nicht', 'falsch', {versuch: 1, von: 5, gesperrt: false});
     if (pfad === '/api/v1/zugang/hinweis') return senden(res, 200, {kennung: cfg.kennung || 'Kennung-1', zugangshinweis: 'Bitte Geburtsdatum eingeben.', freigegeben: cfg.texteFreigegeben !== false});
-    if (pfad === '/api/v1/zugang/pruefen') return body.code === '010260' ? senden(res, 200, {ok: true}) : fehler(401, 'angaben_stimmen_nicht', 'falsch', {versuch: 1, von: 5, gesperrt: false});
+    if (pfad === '/api/v1/zugang/pruefen') return body.code === '01021960' ? senden(res, 200, {ok: true}) : fehler(401, 'angaben_stimmen_nicht', 'falsch', {versuch: 1, von: 5, gesperrt: false});
     if (pfad === '/api/v1/zugang/status') {
         return senden(res, 200, {schritt: 'unterschreiben', seiten: 2, geliefert: 2, personen: cfg.personen, unterschrieben: zustand.unterschrieben,
             naechste_person: zustand.unterschrieben.length < cfg.personen ? zustand.unterschrieben.length + 1 : null});
@@ -137,7 +137,7 @@ function api(req, res, pfad, body) {
     if (pfad === '/api/v1/demo/vorgang' && m === 'POST') {
         const id = 7 + zustand.vorgaenge.length;
         zustand.vorgaenge.push({id, status: 'bereit', erstellt: '2026-11-17T11:00:00Z'});
-        return senden(res, 200, {vorgang_id: id, link: 'https://sn.example/u#demo' + id, geburtsdatum: '01.02.1960', code: '010260', personen: 2, qr_svg: cfg.qrSvg});
+        return senden(res, 200, {vorgang_id: id, link: 'https://sn.example/u#demo' + id, geburtsdatum: '01.02.1960', code: '01021960', personen: 2, qr_svg: cfg.qrSvg});
     }
     if (pfad === '/api/v1/demo/testmail' && m === 'POST') {
         if (cfg.testmailFehler) return fehler(cfg.testmailFehler.status, cfg.testmailFehler.error, cfg.testmailFehler.meldung);
