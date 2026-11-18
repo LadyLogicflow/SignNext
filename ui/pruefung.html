@@ -48,8 +48,9 @@
                     <div class="raster zwei">
                         <section class="card">
                             <h2>Ihre Dokumente</h2>
+                            <div id="dokument-reiter" class="dokument-reiter hidden" role="group" aria-label="Dokument wählen"></div>
                             <iframe id="pdf-viewer" class="pdf-vorschau" title="Dokumente des Vorgangs"></iframe>
-                            <p class="upload-regeln">Vorn steht das Anschreiben, dahinter das Steuerprotokoll mit den Unterschriftsstellen.</p>
+                            <p id="dokument-hinweis" class="upload-regeln">Vorn steht das Anschreiben, dahinter das Steuerprotokoll mit den Unterschriftsstellen.</p>
                             <p class="upload-regeln">Wird die Vorschau nicht angezeigt: <a id="dokument-neues-fenster" href="#" target="_blank" rel="noopener">Dokument in neuem Fenster öffnen</a> oder <a id="dokument-datei" href="#" download="dokument.pdf">als Datei herunterladen</a>.</p>
                         </section>
                         <section class="card">
@@ -127,6 +128,10 @@
                 <section id="panel-status" class="hidden" aria-label="Stand des Vorgangs">
                     <div id="status-hinweis" class="hinweis hidden" role="status"><span id="status-hinweis-text" class="hinweis-text"></span><button id="btn-status-aktion" type="button" class="btn btn-primary hidden"></button></div>
                     <div id="demo-link-box" class="card hidden"></div>
+                    <section id="status-dokumente-karte" class="card hidden">
+                        <h2>Dokumente</h2>
+                        <ul id="status-dokumente" class="dokument-liste"></ul>
+                    </section>
                     <div class="raster zwei">
                         <section class="card">
                             <h2>Was ist passiert?</h2>
@@ -150,7 +155,8 @@
                 <!-- Schritt 4: Abholen -->
                 <section id="panel-abholen" class="hidden" aria-label="Dokumente abholen">
                     <div id="abholen-hinweis" class="hinweis hinweis-gruen"><span id="abholen-hinweis-text" class="hinweis-text"></span></div>
-                    <div class="raster zwei">
+                    <div id="abholen-mehrere" class="hidden"></div>
+                    <div id="abholen-einzeln" class="raster zwei">
                         <section class="card">
                             <h2>Unterschriebenes Dokument</h2>
                             <p class="upload-regeln">Das Steuerprotokoll mit den Unterschriften.</p>

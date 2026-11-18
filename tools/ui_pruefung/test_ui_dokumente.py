@@ -137,6 +137,21 @@ class TestFehlerUndHandoff(unittest.TestCase):
         self.assertTrue(status_nach, "die Seite gleicht ihren Stand mit dem Server ab")
         self.assertEqual(s["alerts"], [])
 
+    def test_fehlercodes_des_servers_und_ihre_saetze(self):
+        faelle = [("reihenfolge", "Bitte der Reihe nach unterschreiben."), ("dokument_nicht_dran", "Bitte zuerst das vorherige Dokument unterschreiben."), ("seiten_fehlen", "Bitte zuerst alle Seiten des Dokuments ansehen."),
+                  ("texte_fehlen", "Bitte zuerst die Datenschutzinformation lesen."), ("text_geaendert", "Die Texte haben sich geändert. Bitte lesen Sie sie erneut.")]
+        ops, i = ablauf(("code", [CODE]), ("gelesen1", LESEN), ("sign", [{"op": "haken", "warte": 50}] + SIGNIEREN))
+        for code, satz in faelle:
+            o = lauf(seite="/u", fragment="#tok", api={"personen": 1, "dokumente": ZWEI_DOKUMENTE, "unterschriftFehler": {"status": 409, "error": code, "meldung": satz}}, ops=ops)
+            s = z(o, i["sign"])
+            self.assertEqual(s["fehler_unterschrift"], satz, code)
+            self.assertTrue([r for r in s["requests"] if r["m"] == "GET" and r["p"] == "/api/v1/zugang/status"], code)      # Stand wird abgeglichen
+        # 409 schon_unterschrieben kommt ohne Text: eigener Satz, nie der Code
+        o = lauf(seite="/u", fragment="#tok", api={"personen": 1, "dokumente": ZWEI_DOKUMENTE, "unterschriftFehler": {"status": 409, "error": "schon_unterschrieben", "meldung": None}}, ops=ops)
+        s = z(o, i["sign"])
+        self.assertEqual(s["fehler_unterschrift"], "Diese Unterschrift wurde schon abgegeben. Die Seite wird aktualisiert.")
+        self.assertNotIn("schon_unterschrieben", s["fehler_unterschrift"])
+
     def test_handoff_nennt_bei_mehreren_dokumenten_das_dokument(self):
         ops, i = ablauf(("code", [CODE]), ("gelesen1", LESEN), ("handy", [{"op": "handy", "warte": 400}]))
         mehrere = lauf(seite="/u", fragment="#tok", api={"personen": 2, "dokumente": ZWEI_DOKUMENTE}, ops=ops)
@@ -180,6 +195,131 @@ class TestMitgliedDownload(unittest.TestCase):
     def test_falscher_code_zeigt_keine_dokumentliste(self):
         o = lauf(seite="/d", fragment="#tok", api={"downloadDokumente": self.LISTE}, ops=[{"op": "code", "form": "form-download", "wert": "01.01.1990", "warte": 400}])
         self.assertEqual((z(o, 0)["dokument_wahl"], z(o, 0)["code_fehler"]), (None, "Das Geburtsdatum stimmt nicht"))
+
+
+def fortschritt(b=(2, True), a=(0, False), erforderlich=(1, 2)):
+    """dokumente_fortschritt wie von Sortys Backend: Anschreiben B und Protokoll A, je (Zahl der Unterschriften, fertig)."""
+    return [{"rolle": "B", "titel": "Anschreiben", "erforderlich": list(erforderlich), "unterschrieben": list(erforderlich[:b[0]]), "fertig": b[1]},
+            {"rolle": "A", "titel": "Protokoll", "erforderlich": list(erforderlich), "unterschrieben": list(erforderlich[:a[0]]), "fertig": a[1]}]
+
+
+def vorg(status="versendet", **mehr):
+    return {"vorgang": dict({"status": status, "link_status": "aktiv", "versendet_am": "2026-11-16T08:21:00Z"}, **mehr)}
+
+
+def v(o, i=None):
+    return (o["start"] if i is None else o["schritte"][i]["zustand"])["berater"]["vorgang"]
+
+
+SEITE = "/pruefung?id=1"
+
+
+@unittest.skipUnless(BEREIT, HINWEIS)
+class TestBeraterPruefenJeDokument(unittest.TestCase):
+    def test_vorschau_je_dokument_mit_reitern(self):
+        o = lauf(seite=SEITE, api=vorg("bereit", dokumente_fortschritt=fortschritt((0, False), (0, False))),
+                 ops=[{"op": "klick_text", "sel": "#dokument-reiter button", "text": "Protokoll", "warte": 200}])
+        p = v(o)["pruefen"]
+        self.assertEqual([(r["text"], r["gedrueckt"]) for r in p["reiter"]], [("Anschreiben", "true"), ("Protokoll", "false")])
+        self.assertEqual(p["pdf"], "/api/v1/vorgaenge/1/dokument?dokument=B")                                # erstes Dokument zuerst
+        self.assertEqual(p["dokument_links"], ["/api/v1/vorgaenge/1/dokument?dokument=B"] * 2)                # Ausweg-Links passend zum Reiter
+        self.assertIn("Jedes Dokument wird einzeln unterschrieben", p["dokument_hinweis"])
+        q = v(o, 0)["pruefen"]
+        self.assertEqual([(r["text"], r["gedrueckt"]) for r in q["reiter"]], [("Anschreiben", "false"), ("Protokoll", "true")])
+        self.assertEqual((q["pdf"], q["dokument_links"]), ("/api/v1/vorgaenge/1/dokument?dokument=A", ["/api/v1/vorgaenge/1/dokument?dokument=A"] * 2))
+
+    def test_ein_dokument_bleibt_wie_bisher(self):
+        p = v(lauf(seite=SEITE, api=vorg("bereit"), ops=[]))["pruefen"]
+        self.assertEqual((p["reiter"], p["pdf"]), (None, "/api/v1/vorgaenge/1/dokument"))
+        self.assertIn("Vorn steht das Anschreiben", p["dokument_hinweis"])
+
+    def test_vorher_noch_ohne_fortschritt_reihenfolge_anschreiben_vor_protokoll(self):
+        # vor dem Abschluss zeigt die alte Liste "dokumente" die Rollen A/B; die Reiter folgen immer der Reihenfolge des Mitglieds (B vor A)
+        o = lauf(seite=SEITE, api=vorg("bereit", dokumente=[{"id": 1, "rolle": "A"}, {"id": 2, "rolle": "B"}]), ops=[])
+        self.assertEqual([r["text"] for r in v(o)["pruefen"]["reiter"]], ["Anschreiben", "Protokoll"])
+
+
+@unittest.skipUnless(BEREIT, HINWEIS)
+class TestBeraterStandJeDokument(unittest.TestCase):
+    def test_teilweise_unterschrieben_mit_hinweis_und_dokumentkarte(self):
+        o = lauf(seite=SEITE, api=vorg(dokumente_fortschritt=fortschritt((2, True), (0, False))), ops=[])
+        d = v(o)
+        self.assertEqual(d["titel"], "Mustermann_Steuer2025 · Teilweise unterschrieben")
+        self.assertEqual(d["status"]["hinweis"], {"klasse": "hinweis-blau", "text": "Anschreiben ist unterschrieben, Protokoll fehlt noch. Das Mitglied kann mit demselben Link weitermachen.", "aktion": None})
+        self.assertEqual(d["status"]["dokumente"], [{"titel": "Anschreiben", "stand": "✓ unterschrieben (2 von 2 Unterschriften)"}, {"titel": "Protokoll", "stand": "wartet auf Unterschrift (0 von 2 Unterschriften)"}])
+
+    def test_eine_von_zwei_unterschriften_im_dokument(self):
+        o = lauf(seite=SEITE, api=vorg(dokumente_fortschritt=fortschritt((2, True), (1, False))), ops=[])
+        self.assertEqual(v(o)["status"]["dokumente"][1], {"titel": "Protokoll", "stand": "wartet auf weitere Unterschrift (1 von 2 Unterschriften)"})
+
+    def test_noch_nichts_unterschrieben_kein_hinweis_aber_karte(self):
+        d = v(lauf(seite=SEITE, api=vorg(dokumente_fortschritt=fortschritt((0, False), (0, False))), ops=[]))
+        self.assertEqual(d["titel"], "Mustermann_Steuer2025 · Wartet auf Unterschrift")
+        self.assertIsNone(d["status"]["hinweis"])
+        self.assertEqual([x["stand"][:20] for x in d["status"]["dokumente"]], ["wartet auf Unterschr"] * 2)
+
+    def test_abgelaufener_link_hat_vorrang_vor_dem_teilhinweis(self):
+        d = v(lauf(seite=SEITE, api=vorg(link_status="abgelaufen", dokumente_fortschritt=fortschritt((2, True), (0, False))), ops=[]))
+        self.assertIn("Der Link ist abgelaufen.", d["status"]["hinweis"]["text"])
+        self.assertEqual(d["status"]["hinweis"]["klasse"], "hinweis-gelb")
+
+    def test_ein_dokument_zeigt_keine_dokumentkarte(self):
+        self.assertIsNone(v(lauf(seite=SEITE, api=vorg(), ops=[]))["status"]["dokumente"])
+
+
+@unittest.skipUnless(BEREIT, HINWEIS)
+class TestBeraterAbholenJeDokument(unittest.TestCase):
+    FERTIG = dict(status="abgeschlossen", unterschrieben_am="2026-11-15T15:48:00Z", aufbewahrung_bis="2027-11-15T12:00:00Z", personen=2)
+
+    def api(self, **mehr):
+        return dict(vorg(**dict(self.FERTIG, dokumente_fortschritt=fortschritt((2, True), (2, True)))), **mehr)
+
+    def test_je_dokument_ein_block_mit_dokument_und_nachweis(self):
+        a = v(lauf(seite=SEITE, api=self.api(), ops=[]))["abholen"]
+        self.assertFalse(a["einzeln_sichtbar"])
+        self.assertEqual(a["bloecke"], [{"rolle": "B", "titel": "Anschreiben", "knoepfe": ["Anschreiben herunterladen", "Nachweis zum Anschreiben herunterladen"]},
+                                        {"rolle": "A", "titel": "Protokoll", "knoepfe": ["Protokoll herunterladen", "Nachweis zum Protokoll herunterladen"]}])
+        self.assertEqual(a["hinweis"], "Beide Personen haben unterschrieben (15.11.2026, 16:48). Alle Dokumente sind fertig.")
+        self.assertEqual(a["frist"], "Alle Dateien bleiben bis 15.11.2027 hier abrufbar und werden danach automatisch gelöscht.")
+
+    def test_jeder_download_nennt_sein_dokument(self):
+        ops = [{"op": "klick_text", "sel": ".abholen-block button", "text": t, "warte": 300} for t in ("Anschreiben herunterladen", "Nachweis zum Anschreiben herunterladen", "Protokoll herunterladen", "Nachweis zum Protokoll herunterladen")]
+        o = lauf(seite=SEITE, api=self.api(), ops=ops)
+        adressen = []
+        for i in range(4):
+            adressen += [r["p"] + r["q"] for r in o["schritte"][i]["zustand"]["requests"] if "/download/" in r["p"]]
+        self.assertEqual(adressen, ["/api/v1/vorgaenge/1/download/dokument?dokument=B", "/api/v1/vorgaenge/1/download/nachweis?dokument=B",
+                                    "/api/v1/vorgaenge/1/download/dokument?dokument=A", "/api/v1/vorgaenge/1/download/nachweis?dokument=A"])
+        self.assertEqual(v(o, 3)["downloads"], ["dokument_Anschreiben_1.pdf", "nachweis_Anschreiben_1.pdf", "dokument_Protokoll_1.pdf", "nachweis_Protokoll_1.pdf"])
+
+    def test_fehler_des_servers_steht_im_text(self):
+        o = lauf(seite=SEITE, api=self.api(downloadFehler={"status": 400, "body": {"error": "dokument_waehlen", "meldung": "Bitte wählen Sie ein Dokument."}}),
+                 ops=[{"op": "klick_text", "sel": ".abholen-block button", "text": "Protokoll herunterladen", "warte": 300}])
+        self.assertEqual(v(o, 0)["abholen"]["fehler"], "Bitte wählen Sie ein Dokument.")
+
+    def test_ein_dokument_hat_weiter_die_beiden_karten(self):
+        a = v(lauf(seite=SEITE, api=vorg(**self.FERTIG), ops=[]))["abholen"]
+        self.assertEqual((a["einzeln_sichtbar"], a["bloecke"]), (True, []))
+        self.assertIn("Das Dokument ist fertig.", a["hinweis"])
+
+
+@unittest.skipUnless(BEREIT, HINWEIS)
+class TestUebersichtJeDokument(unittest.TestCase):
+    @staticmethod
+    def eintrag(id, status, gesamt, fertig, link="aktiv"):
+        return {"id": id, "status": status, "erstellt": "2026-11-17T13:05:00Z", "name": "Muster%d" % id, "personen": 2, "link_status": link, "link_laeuft_ab": None, "dokumente_gesamt": gesamt, "dokumente_fertig": fertig}
+
+    def test_marke_zusatz_und_knoepfe(self):
+        liste = [self.eintrag(5, "versendet", 2, 1), self.eintrag(4, "versendet", 2, 0), self.eintrag(3, "abgeschlossen", 2, 2), self.eintrag(2, "abgeschlossen", 1, 1),
+                 self.eintrag(1, "versendet", 2, 1, "abgelaufen")]
+        o = lauf(seite="/vorgaenge", api={"vorgaenge": liste}, ops=[])
+        z = {x["id"]: x for x in o["start"]["berater"]["uebersicht"]["zeilen"]}
+        self.assertEqual((z["5"]["pille"], z["5"]["pille_klasse"], z["5"]["zusatz"], z["5"]["haupt"]["text"]), ("Teilweise unterschrieben", "p-mitglied", "1 von 2 Dokumenten unterschrieben", "Ansehen"))
+        self.assertEqual(z["4"]["pille"], "Wartet auf Unterschrift")                                       # noch kein Dokument fertig
+        self.assertEqual((z["3"]["haupt"]["text"], z["3"]["haupt"]["href"], z["3"]["menue"]), ("Abholen", "/pruefung?id=3", ["Löschen …"]))      # kein einzelner Download bei mehreren Dokumenten
+        self.assertEqual((z["2"]["haupt"]["text"], z["2"]["menue"]), ("Dokument laden", ["Nachweis herunterladen", "Löschen …"]))                # ein Dokument wie bisher
+        self.assertEqual(z["1"]["pille"], "Link abgelaufen")                                               # der abgelaufene Link hat Vorrang
+        self.assertEqual(o["fehler_js"], [])
 
 
 if __name__ == "__main__":

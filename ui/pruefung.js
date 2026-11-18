@@ -15,6 +15,7 @@ let mailZugang = null;
 let istDemo = false;
 let linkBox = null;                 // Link/QR aus dem Demo (Antwort von versenden)
 let rueckfrageJa = null;
+const DOK_TITEL = {B: 'Anschreiben', A: 'Protokoll'};
 const FEHLEND_TEXT = {email: 'E-Mail', geburtsdatum: 'Geburtsdatum', personen: 'Zahl der Unterschriften'};
 const KRITERIEN = {steuernummer: 'Steuernummer', steuer_id: 'Steuer-ID', mitgliedsnummer: 'Mitgliedsnummer'};
 const el = (id) => document.getElementById(id);
@@ -40,6 +41,25 @@ async function api(method, path, body = null) {
         throw Object.assign(new Error(daten.meldung || ALLGEMEINER_FEHLER), {daten, status: res.status});
     }
     return res.json();
+}
+
+// Dokumente des Vorgangs in der Reihenfolge wie beim Mitglied: erst das Anschreiben (B), dann das Protokoll (A).
+// dokumente_fortschritt kommt vom Server; ohne dieses Feld (ein Dokument, älterer Stand) bleibt alles wie bisher.
+function dokumenteDesVorgangs() {
+    const f = vorgang && Array.isArray(vorgang.dokumente_fortschritt) ? vorgang.dokumente_fortschritt : null;
+    if (f && f.length) {
+        return f.map(d => ({rolle: d.rolle, titel: d.titel || DOK_TITEL[d.rolle] || String(d.rolle), erforderlich: d.erforderlich || [], unterschrieben: d.unterschrieben || [], fertig: !!d.fertig}));
+    }
+    const rollen = ((vorgang && vorgang.dokumente) || []).map(d => d.rolle);
+    return ['B', 'A'].filter(r => rollen.includes(r)).map(r => ({rolle: r, titel: DOK_TITEL[r], erforderlich: [], unterschrieben: [], fertig: false}));
+}
+
+function mehrereDokumente() {
+    return dokumenteDesVorgangs().length > 1;
+}
+
+function dokumentAdresse(rolle) {
+    return `/api/v1/vorgaenge/${vorgangId}/dokument${rolle ? '?dokument=' + encodeURIComponent(rolle) : ''}`;
 }
 
 function name() {
@@ -142,9 +162,7 @@ const HERKUNFT_TEXT = {
 function zeigePruefen() {
     panel('pruefen', 'Angaben prüfen', 2);
     const d = pruefdaten;
-    el('pdf-viewer').src = `/api/v1/vorgaenge/${vorgangId}/dokument`;
-    el('dokument-neues-fenster').href = `/api/v1/vorgaenge/${vorgangId}/dokument`;
-    el('dokument-datei').href = `/api/v1/vorgaenge/${vorgangId}/dokument`;
+    vorschauZeigen();
     el('name-wert').textContent = d.name && d.name.wert ? d.name.wert : 'Der Name konnte nicht gelesen werden.';
     el('name-hinweis').textContent = `Vorgang: ${name()}`;
     el('personen').value = d.personen && d.personen.wert ? String(d.personen.wert) : '';
@@ -170,6 +188,38 @@ function zeigePruefen() {
             : 'Bitte kurz prüfen: Anschreiben und Steuerprotokoll lassen sich nicht sicher demselben Mitglied zuordnen. Gehören beide zusammen?';
     }
     el('btn-weiter').disabled = false;
+}
+
+// Bei mehreren Dokumenten gibt es für jedes Dokument eine eigene Vorschau (Reiter); sonst eine Vorschau wie bisher
+function vorschauZeigen(rolle) {
+    const dok = dokumenteDesVorgangs();
+    const reiter = el('dokument-reiter');
+    reiter.textContent = '';
+    if (dok.length < 2) {
+        reiter.classList.add('hidden');
+        el('dokument-hinweis').textContent = 'Vorn steht das Anschreiben, dahinter das Steuerprotokoll mit den Unterschriftsstellen.';
+        const adresse = dokumentAdresse(null);
+        el('pdf-viewer').src = adresse;
+        el('dokument-neues-fenster').href = adresse;
+        el('dokument-datei').href = adresse;
+        return;
+    }
+    const gewaehlt = rolle || dok[0].rolle;
+    el('dokument-hinweis').textContent = 'Jedes Dokument wird einzeln unterschrieben. Wählen Sie oben das Dokument, das Sie ansehen möchten.';
+    dok.forEach(d => {
+        const knopf = document.createElement('button');
+        knopf.type = 'button';
+        knopf.textContent = d.titel;
+        knopf.dataset.rolle = d.rolle;
+        knopf.setAttribute('aria-pressed', String(d.rolle === gewaehlt));
+        knopf.addEventListener('click', () => vorschauZeigen(d.rolle));
+        reiter.appendChild(knopf);
+    });
+    reiter.classList.remove('hidden');
+    const adresse = dokumentAdresse(gewaehlt);
+    el('pdf-viewer').src = adresse;
+    el('dokument-neues-fenster').href = adresse;
+    el('dokument-datei').href = adresse;
 }
 
 function pruefeEingabe() {
@@ -291,12 +341,23 @@ const STATUS_TITEL = {
     abschluss_fehlgeschlagen: 'Fertigstellung hakt', neu: 'Wird ausgewertet'
 };
 
+function teilweiseUnterschrieben() {
+    const dok = dokumenteDesVorgangs();
+    return dok.length > 1 && dok.some(d => d.fertig) && !dok.every(d => d.fertig);
+}
+
 function statusHinweis() {
     const s = vorgang.status;
     const l = vorgang.link_status;
     if (s === 'versendet' && l === 'abgelaufen') return {art: 'gelb', aktion: 'Neuen Link senden', text: 'Der Link ist abgelaufen. Das Mitglied hat nicht rechtzeitig unterschrieben. Mit einem neuen Link kann es noch einmal versuchen – der alte funktioniert dann nicht mehr.'};
     if (s === 'versendet' && l === 'gesperrt') return {art: 'gelb', aktion: 'Neuen Link senden', text: 'Der Link ist gesperrt, weil das Geburtsdatum zu oft falsch eingegeben wurde. Mit einem neuen Link kann das Mitglied es noch einmal versuchen.'};
     if (s === 'versand_unklar') return {art: 'rot', aktion: 'Neuen Link senden', text: 'Wir wissen nicht, ob die E-Mail angekommen ist. Bitte schauen Sie in Ihrem Postfach unter „Gesendet“ nach. Erst wenn sie dort fehlt, senden Sie einen neuen Link.'};
+    if (s === 'versendet' && teilweiseUnterschrieben()) {
+        const dok = dokumenteDesVorgangs();
+        const fertig = dok.filter(d => d.fertig).map(d => d.titel).join(' und ');
+        const offen = dok.filter(d => !d.fertig).map(d => d.titel).join(' und ');
+        return {art: 'blau', text: `${fertig} ${dok.filter(d => d.fertig).length > 1 ? 'sind' : 'ist'} unterschrieben, ${offen} fehlt noch. Das Mitglied kann mit demselben Link weitermachen.`};
+    }
     if (s === 'unterschrieben' || s === 'abschluss_laeuft') return {art: 'blau', text: 'Die Unterschrift ist eingegangen. Das Dokument wird gerade fertiggestellt – das dauert meist nur einen Moment. Mit „Stand aktualisieren“ sehen Sie, ob es fertig ist.'};
     if (s === 'abschluss_fehlgeschlagen') return {art: 'rot', text: 'Die Fertigstellung hat nicht geklappt. Das System versucht es automatisch noch einmal. Bitte schauen Sie später wieder vorbei.'};
     if (s === 'versenden') return {art: 'blau', text: 'Der Link wird gerade gesendet …'};
@@ -306,7 +367,7 @@ function statusHinweis() {
 
 function zeigeStatus() {
     const s = vorgang.status;
-    panel('status', `${name()} · ${STATUS_TITEL[s] || String(s).replace(/_/g, ' ')}`, 3);
+    panel('status', `${name()} · ${s === 'versendet' && teilweiseUnterschrieben() ? 'Teilweise unterschrieben' : (STATUS_TITEL[s] || String(s).replace(/_/g, ' '))}`, 3);
     const h = statusHinweis();
     const box = el('status-hinweis');
     box.classList.toggle('hidden', !h);
@@ -327,6 +388,7 @@ function zeigeStatus() {
         lb.textContent = '';
     }
     zeichneZeitstrahl();
+    dokumenteKarteZeigen();
     const nachfassen = s === 'versendet';
     el('btn-neuer-link').classList.toggle('hidden', !(nachfassen && !(h && h.aktion)));
     el('erinnerungen-zeile').classList.toggle('hidden', !nachfassen);
@@ -342,6 +404,30 @@ function linkGueltig() {
     const tage = Math.ceil((ab - Date.now()) / (24 * 60 * 60 * 1000));
     if (tage > 1) return `Der Link ist noch ${tage} Tage gültig.`;
     return tage === 1 ? 'Der Link ist noch 1 Tag gültig.' : 'Der Link läuft heute ab.';
+}
+
+// Karte "Dokumente": Stand je Dokument (nur bei mehreren Dokumenten)
+function dokumenteKarteZeigen() {
+    const dok = dokumenteDesVorgangs();
+    const karte = el('status-dokumente-karte');
+    const liste = el('status-dokumente');
+    liste.textContent = '';
+    if (dok.length < 2) {
+        karte.classList.add('hidden');
+        return;
+    }
+    dok.forEach(d => {
+        const li = document.createElement('li');
+        const titel = document.createElement('strong');
+        titel.textContent = d.titel;
+        const stand = document.createElement('span');
+        const noetig = d.erforderlich.length;
+        const klammer = noetig ? ` (${d.unterschrieben.length} von ${noetig} ${noetig === 1 ? 'Unterschrift' : 'Unterschriften'})` : '';
+        stand.textContent = (d.fertig ? '✓ unterschrieben' : (d.unterschrieben.length ? 'wartet auf weitere Unterschrift' : 'wartet auf Unterschrift')) + klammer;
+        li.append(titel, stand);
+        liste.appendChild(li);
+    });
+    karte.classList.remove('hidden');
 }
 
 function zeichneZeitstrahl() {
@@ -430,18 +516,54 @@ function zeigeAbholen() {
     panel('abholen', `${name()} · Fertig`, 4);
     const zwei = vorgang.personen === 2;
     const wann = vorgang.unterschrieben_am ? ` (${datumUhr(vorgang.unterschrieben_am)})` : '';
-    el('abholen-hinweis-text').textContent = `${zwei ? 'Beide Personen haben unterschrieben' : 'Die Unterschrift ist eingegangen'}${wann}. Das Dokument ist fertig.`;
+    const mehrere = mehrereDokumente();
+    el('abholen-hinweis-text').textContent = `${zwei ? 'Beide Personen haben unterschrieben' : 'Die Unterschrift ist eingegangen'}${wann}. ${mehrere ? 'Alle Dokumente sind fertig.' : 'Das Dokument ist fertig.'}`;
     const frist = vorgang.aufbewahrung_bis ? datumTag(vorgang.aufbewahrung_bis) : '';
     el('abholen-frist').textContent = frist
-        ? `Beide Dateien bleiben bis ${frist} hier abrufbar und werden danach automatisch gelöscht.`
-        : 'Beide Dateien bleiben hier abrufbar und werden nach Ablauf der Aufbewahrungsfrist automatisch gelöscht.';
+        ? `${mehrere ? 'Alle Dateien' : 'Beide Dateien'} bleiben bis ${frist} hier abrufbar und werden danach automatisch gelöscht.`
+        : `${mehrere ? 'Alle Dateien' : 'Beide Dateien'} bleiben hier abrufbar und werden nach Ablauf der Aufbewahrungsfrist automatisch gelöscht.`;
     zeigeFehler('abholen-fehler', '');
+    abholenBloecke();
 }
 
-async function herunterladen(art) {
+// Bei mehreren Dokumenten ein Block je Dokument mit Dokument und Nachweis; bei einem Dokument die beiden Karten wie bisher
+function abholenBloecke() {
+    const dok = dokumenteDesVorgangs();
+    const mehrere = dok.length > 1;
+    el('abholen-einzeln').classList.toggle('hidden', mehrere);
+    const box = el('abholen-mehrere');
+    box.classList.toggle('hidden', !mehrere);
+    box.textContent = '';
+    if (!mehrere) return;
+    dok.forEach(d => {
+        const karte = document.createElement('section');
+        karte.className = 'card abholen-block';
+        karte.dataset.rolle = d.rolle;
+        const h = document.createElement('h2');
+        h.textContent = d.titel;
+        const p = document.createElement('p');
+        p.className = 'upload-regeln';
+        p.textContent = `Das unterschriebene ${d.titel} und der Nachweis, wer wann unterschrieben hat.`;
+        const knoepfe = document.createElement('div');
+        knoepfe.className = 'abholen-knoepfe';
+        [['dokument', `${d.titel} herunterladen`], ['nachweis', `Nachweis zum ${d.titel} herunterladen`]].forEach(([art, text]) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'btn btn-primary';
+            b.dataset.art = art;
+            b.textContent = text;
+            b.addEventListener('click', () => herunterladen(art, d.rolle, d.titel));
+            knoepfe.appendChild(b);
+        });
+        karte.append(h, p, knoepfe);
+        box.appendChild(karte);
+    });
+}
+
+async function herunterladen(art, rolle, titel) {
     zeigeFehler('abholen-fehler', '');
     try {
-        const res = await fetch(`/api/v1/vorgaenge/${vorgangId}/download/${art}`, {credentials: 'same-origin'});
+        const res = await fetch(`/api/v1/vorgaenge/${vorgangId}/download/${art}${rolle ? '?dokument=' + encodeURIComponent(rolle) : ''}`, {credentials: 'same-origin'});
         if (!res.ok) {
             let daten = {};
             try { daten = await res.json(); } catch (err) { daten = {}; }
@@ -451,7 +573,7 @@ async function herunterladen(art) {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `${art}_${vorgangId}.pdf`;
+        a.download = rolle ? `${art}_${String(titel || rolle).replace(/[^A-Za-z0-9_-]+/g, '_')}_${vorgangId}.pdf` : `${art}_${vorgangId}.pdf`;
         a.click();
         URL.revokeObjectURL(url);
     } catch (err) {

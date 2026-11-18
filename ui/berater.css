@@ -751,6 +751,60 @@ body.berater .form-group small {
     color: var(--ink-soft);
 }
 
+/* Mehrere Dokumente je Vorgang */
+body.berater .dokument-reiter {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+
+body.berater .dokument-reiter button {
+    min-height: 44px;
+    padding: 6px 16px;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    font: 600 14px Inter, system-ui, sans-serif;
+    color: var(--navy-900);
+    cursor: pointer;
+}
+
+body.berater .dokument-reiter button[aria-pressed="true"] {
+    background: var(--navy-900);
+    border-color: var(--navy-900);
+    color: #fff;
+}
+
+body.berater .dokument-liste {
+    list-style: none;
+}
+
+body.berater .dokument-liste li {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 0;
+    border-top: 1px solid var(--line);
+    overflow-wrap: anywhere;
+}
+
+body.berater .dokument-liste li:first-child {
+    border-top: 0;
+}
+
+body.berater .abholen-block {
+    margin-bottom: 14px;
+}
+
+body.berater .abholen-knoepfe {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 10px;
+}
+
 /* Knöpfe nebeneinander, auf schmalen Bildschirmen umbrechen statt überlaufen */
 body.berater .knopf-zeile {
     display: flex;
@@ -777,4 +831,11 @@ body.berater .knopf-zeile {
     body.berater .pdf-vorschau { height: 360px; }
     body.berater .zeile { grid-template-columns: 1fr; gap: 6px; }
     body.berater .zeile-aktion { justify-content: flex-start; margin-top: 4px; }
+}
+
+/* Lange Namen ohne Leerzeichen (Vorgangsname aus dem Dateinamen) dürfen die Seite nie verbreitern */
+body.berater small,
+body.berater .zeile-sub,
+body.berater .upload-regeln {
+    overflow-wrap: anywhere;
 }

@@ -4,6 +4,8 @@
 const API = '/api/v1/zugang';
 const HANDY_ABFRAGE_MS = 2000;
 const ALLGEMEINER_FEHLER = 'Das hat leider nicht geklappt. Bitte versuchen Sie es noch einmal.';
+// Fehlercodes des Servers ohne eigenen Text (409 schon_unterschrieben): ein Satz für das Mitglied statt des Codes
+const CODE_TEXTE = {schon_unterschrieben: 'Diese Unterschrift wurde schon abgegeben. Die Seite wird aktualisiert.'};
 const HANDY_NICHT_MOEGLICH = 'Die Übergabe ans Handy ist gerade nicht möglich. Bitte unterschreiben Sie hier im Feld.';
 let token = null;
 let textHash = null;
@@ -83,7 +85,7 @@ async function api(method, path, body = null) {
             e.sitzung = true;
             throw e;
         }
-        throw new ApiFehler(data.meldung || data.error || ALLGEMEINER_FEHLER, res.status, data.error, data);
+        throw new ApiFehler(data.meldung || CODE_TEXTE[data.error] || ALLGEMEINER_FEHLER, res.status, data.error, data);
     }
     return data;
 }
@@ -303,7 +305,7 @@ async function loadTexte() {
 }
 
 // Nach diesen Fehlern des Servers hat sich der Stand geändert: Seite neu abgleichen statt weiterzumachen
-const STAND_GEAENDERT = ['lesen_fehlt', 'reihenfolge', 'dokument_nicht_dran'];
+const STAND_GEAENDERT = ['lesen_fehlt', 'reihenfolge', 'dokument_nicht_dran', 'schon_unterschrieben', 'seiten_fehlen', 'texte_fehlen', 'text_geaendert'];
 
 async function sendUnterschrift() {
     if (texteNoetig && !document.getElementById('check-datenschutz').checked) {

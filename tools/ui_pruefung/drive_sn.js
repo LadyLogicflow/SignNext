@@ -172,7 +172,11 @@ function api(req, res, pfad, body) {
         return senden(res, antwort.status, antwort.body);
     }
     treffer = /^\/api\/v1\/vorgaenge\/(\d+)\/download\/(dokument|nachweis)$/.exec(pfad);
-    if (treffer && m === 'GET') return cfg.downloadFehler ? senden(res, cfg.downloadFehler.status, cfg.downloadFehler.body) : senden(res, 200, '%PDF-1.4 test', 'application/pdf');
+    if (treffer && m === 'GET') {
+        if (cfg.downloadFehler) return senden(res, cfg.downloadFehler.status, cfg.downloadFehler.body);
+        if (cfg.downloadMehrere && !new URL(req.url, 'http://x').searchParams.get('dokument')) return fehler(400, 'dokument_waehlen', 'Bitte wählen Sie ein Dokument.', {dokumente: cfg.downloadMehrere});
+        return senden(res, 200, '%PDF-1.4 test', 'application/pdf');
+    }
     if (pfad === '/api/v1/demo' && m === 'GET') return senden(res, 200, cfg.demoInfo);
     if (pfad === '/api/v1/demo/vorgang' && m === 'POST') {
         const id = 7 + zustand.vorgaenge.length;
@@ -369,7 +373,8 @@ async function main() {
                     schritte: [...doc.querySelectorAll('#schrittleiste li')].map(li => ({nr: li.dataset.schritt, klasse: li.className, marke: li.querySelector('b').textContent, aktuell: li.getAttribute('aria-current') === 'step'})),
                     meldung: t('meldung'), seite_fehler: offen('seite-fehler') ? {text: t('seite-fehler-text'), nochmal: offen('btn-neu-laden')} : null, laedt: offen('loading'),
                     pruefen: offen('panel-pruefen') ? {
-                        pdf: doc.getElementById('pdf-viewer').getAttribute('src'), name: t('name-wert'), name_hinweis: t('name-hinweis'), personen: doc.getElementById('personen').value, pers_hinweis: t('pers-hinweis'),
+                        pdf: doc.getElementById('pdf-viewer').getAttribute('src'), reiter: offen('dokument-reiter') ? [...doc.querySelectorAll('#dokument-reiter button')].map(b => ({text: b.textContent, gedrueckt: b.getAttribute('aria-pressed')})) : null,
+                        dokument_links: [doc.getElementById('dokument-neues-fenster').getAttribute('href'), doc.getElementById('dokument-datei').getAttribute('href')], dokument_hinweis: t('dokument-hinweis'), name: t('name-wert'), name_hinweis: t('name-hinweis'), personen: doc.getElementById('personen').value, pers_hinweis: t('pers-hinweis'),
                         email: doc.getElementById('email').value, email_hinweis: t('email-hinweis'), geb: doc.getElementById('geburtsdatum').value, geb_platz: doc.getElementById('geburtsdatum').placeholder, geb_hinweis: t('geb-hinweis'),
                         abweichung: t('abweichung'), haken_text: t('angaben-stimmen-text'), haken: doc.getElementById('angaben-stimmen').checked,
                         fehler: {pers: t('pers-error'), email: t('email-error'), geb: t('geb-error'), haken: t('haken-error'), allgemein: t('pruefen-fehler')}, knopf: doc.getElementById('btn-weiter').textContent, knopf_gesperrt: doc.getElementById('btn-weiter').disabled} : null,
@@ -380,9 +385,10 @@ async function main() {
                         hinweis: offen('status-hinweis') ? {klasse: hinweisBox.className.replace('hinweis ', '').trim(), text: t('status-hinweis-text'), aktion: offen('btn-status-aktion') ? doc.getElementById('btn-status-aktion').textContent : null} : null,
                         zeitstrahl: [...doc.querySelectorAll('#zeitstrahl li')].map(li => ({text: li.firstChild.textContent, zeit: li.querySelector('small') ? li.querySelector('small').textContent : null, offen: li.classList.contains('offen')})),
                         link_box: ergebnis('demo-link-box'),
+                        dokumente: offen('status-dokumente-karte') ? [...doc.querySelectorAll('#status-dokumente li')].map(li => ({titel: li.querySelector('strong').textContent, stand: li.querySelector('span').textContent})) : null,
                         neuer_link: offen('btn-neuer-link'), erinnerungen: offen('erinnerungen-zeile') ? doc.getElementById('erinnerungen-aktiv').checked : null, loeschen: offen('btn-loeschen'),
                         rueckfrage: offen('aktion-rueckfrage') ? {text: t('aktion-rueckfrage-text'), ja: doc.getElementById('btn-rueckfrage-ja').textContent} : null, fehler: t('status-fehler')} : null,
-                    abholen: offen('panel-abholen') ? {hinweis: t('abholen-hinweis-text'), frist: t('abholen-frist'), fehler: t('abholen-fehler'), rueckfrage: offen('abholen-rueckfrage') ? t('abholen-rueckfrage-text') : null} : null,
+                    abholen: offen('panel-abholen') ? {einzeln_sichtbar: offen('abholen-einzeln'), bloecke: [...doc.querySelectorAll('#abholen-mehrere .abholen-block')].map(k => ({rolle: k.dataset.rolle, titel: k.querySelector('h2').textContent, knoepfe: [...k.querySelectorAll('button')].map(b => b.textContent)})), hinweis: t('abholen-hinweis-text'), frist: t('abholen-frist'), fehler: t('abholen-fehler'), rueckfrage: offen('abholen-rueckfrage') ? t('abholen-rueckfrage-text') : null} : null,
                     geloescht: offen('panel-geloescht') ? t('geloescht-text') : null, downloads: zustand.downloads.slice()};
             })() : null,
             uebersicht: doc.getElementById('uebersicht') && sichtbar('uebersicht') ? {

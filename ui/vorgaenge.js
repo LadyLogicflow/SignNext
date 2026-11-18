@@ -75,6 +75,13 @@ function beschreibe(v) {
     } else {
         info.text = statusTexte[v.status] || String(v.status || 'unbekannt').replace(/_/g, ' ');       // unbekannter Wert: lesbar anzeigen, nichts raten
     }
+    const gesamt = Number(v.dokumente_gesamt) || 0;
+    const fertig = Number(v.dokumente_fertig) || 0;
+    if (v.status === 'abgeschlossen' && gesamt > 1) info.knopf = 'Abholen';                          // mehrere Dokumente: die Seite zum Abholen statt eines einzelnen Downloads
+    if (v.status === 'versendet' && gesamt > 1 && fertig > 0 && fertig < gesamt && !LINK_PROBLEM[v.link_status]) {
+        info.text = 'Teilweise unterschrieben';
+        info.zusatz = `${fertig} von ${gesamt} Dokumenten unterschrieben`;
+    }
     if (v.status === 'versendet' && LINK_PROBLEM[v.link_status]) {
         info.text = LINK_PROBLEM[v.link_status];
         info.gruppe = 'problem';
@@ -242,7 +249,7 @@ function zeichneAktion(z, aktion, v, info) {
     if (info.knopf) {
         const klasse = 'btn btn-klein ' + (info.zweit ? 'btn-secondary' : 'btn-primary');
         if (info.neuerLink) aktion.appendChild(aktionsKnopf(info.knopf, klasse, () => frage(z, aktion, v, info, neuerLinkFrage(v), 'Ja, neuen Link senden', () => neuerLink(v, z))));
-        else if (v.status === 'abgeschlossen') aktion.appendChild(aktionsKnopf(info.knopf, klasse, () => downloadVorgang(v.id, 'dokument', z)));
+        else if (v.status === 'abgeschlossen' && !(Number(v.dokumente_gesamt) > 1)) aktion.appendChild(aktionsKnopf(info.knopf, klasse, () => downloadVorgang(v.id, 'dokument', z)));
         else {
             const a = document.createElement('a');
             a.className = klasse;
@@ -252,7 +259,7 @@ function zeichneAktion(z, aktion, v, info) {
         }
     }
     const eintraege = [];
-    if (v.status === 'abgeschlossen') eintraege.push(['Nachweis herunterladen', () => downloadVorgang(v.id, 'nachweis', z)]);
+    if (v.status === 'abgeschlossen' && !(Number(v.dokumente_gesamt) > 1)) eintraege.push(['Nachweis herunterladen', () => downloadVorgang(v.id, 'nachweis', z)]);
     if (['versendet', 'versand_unklar'].includes(v.status) && !info.neuerLink) eintraege.push(['Neuen Link senden …', () => frage(z, aktion, v, info, neuerLinkFrage(v), 'Ja, neuen Link senden', () => neuerLink(v, z))]);
     if (!OHNE_LOESCHEN.includes(v.status)) eintraege.push(['Löschen …', () => frage(z, aktion, v, info, loeschFrage(v), 'Ja, löschen', () => loeschen(v, z), true)]);
     if (eintraege.length) {
