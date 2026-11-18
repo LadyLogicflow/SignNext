@@ -109,7 +109,7 @@ class TestDemoAblauf(DemoBasis):
         d = demo.download_link_erzeugen(vid, "demo")
         dtoken = re.search(r"/d#(\S+)$", d["link"]).group(1)
         r = self.m.post("/api/v1/download", json={"token": dtoken, "code": d["code"]}, headers=dict(ORIGIN), base_url=BASIS)
-        self.assertEqual(r.get_json(), {"dokumente": [{"rolle": "B", "titel": "Anschreiben"}, {"rolle": "A", "titel": "Protokoll"}]})   # zwei Dokumente: erst wählen
+        self.assertEqual(r.get_json(), {"dokumente": [{"rolle": "B", "titel": "Vollständigkeitserklärung"}, {"rolle": "A", "titel": "Freizeichnungsprotokoll"}]})   # zwei Dokumente: erst wählen
         r = self.m.post("/api/v1/download", json={"token": dtoken, "code": d["code"], "dokument": "A"}, headers=dict(ORIGIN), base_url=BASIS)
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.get_data().startswith(b"%PDF"))

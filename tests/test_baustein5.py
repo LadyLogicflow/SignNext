@@ -132,7 +132,7 @@ class TestAbschluss(B5):
         self.alles_unterschreiben()
         import hashlib
         texte_je_dokument = {}
-        for rolle, titel in (("B", "Vollständigkeitserklärung"), ("A", "Freizeichnungsprotokoll")):
+        for rolle, titel in (("B", "Anschreiben"), ("A", "Protokoll")):  # NACHWEIS_TITEL, nicht TITEL
             nachweis = db.dokument_bytes("1001", self.vid, "N_" + rolle)
             text = texte_je_dokument[rolle] = "\n".join(p.extract_text() for p in PdfReader(io.BytesIO(nachweis)).pages)
             self.assertIn("Vorgang Nr. %d" % self.vid, text)
