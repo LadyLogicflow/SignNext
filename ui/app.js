@@ -11,6 +11,9 @@ let currentPerson = 1;
 let personenGesamt = 1;
 let gesehenSeiten = new Set();
 let zeichenfeld = null;
+let stand = null;             // letzter Stand vom Server (GET /status)
+let dokument = null;          // aktuelles Dokument {rolle, titel, nr, von, seiten}
+let texteNoetig = true;       // Datenschutzinformation und Haken fehlen für die nächste Person noch
 let handoff = null;           // {id, ende (ms), timer} solange ein QR-Code für das Handy offen ist
 
 // Init
@@ -34,6 +37,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('btn-gelesen').addEventListener('click', markGelesen);
     document.getElementById('btn-unterschreiben').addEventListener('click', sendUnterschrift);
     document.getElementById('btn-neu-laden').addEventListener('click', () => location.reload());
+    document.getElementById('btn-naechstes-dokument').addEventListener('click', async () => {
+        loescheMeldung();
+        try {
+            await weiter();
+        } catch (err) {
+            if (!err.sitzung) zeigeMeldung(err.message);
+        }
+    });
     document.getElementById('btn-handy').addEventListener('click', handyStarten);
     document.getElementById('btn-handy-neu').addEventListener('click', handyStarten);
     document.getElementById('btn-handy-abbrechen').addEventListener('click', handyAbbrechen);
@@ -110,7 +121,7 @@ async function checkCode(e) {
         hideError('code-error');
         loescheMeldung();
         document.getElementById('versuch-info').classList.add('hidden');
-        await loadSeiten();
+        await weiter();
     } catch (err) {
         if (err.code === 'angaben_stimmen_nicht') {
             const {versuch, von, gesperrt} = err.daten;
@@ -129,15 +140,81 @@ async function checkCode(e) {
     }
 }
 
-async function loadSeiten() {
-    showStep('step-seiten');
-    const status = await api('GET', '/status');
-    const {seiten} = status;
+// ----- Ablauf je Dokument: lesen -> (Datenschutz einmal je Person) -> zeichnen -> nächstes Dokument -----
+// Der Stand des Vorgangs kommt vom Server (GET /status); er bestimmt, was als Nächstes erscheint.
 
+function mehrereDokumente() {
+    return !!dokument && dokument.von > 1;
+}
+
+function dokumentParam() {
+    return mehrereDokumente() && dokument.rolle ? `?dokument=${encodeURIComponent(dokument.rolle)}` : '';
+}
+
+function personenImDokument() {
+    const d = ((stand && stand.dokumente) || []).find(x => dokument && x.rolle === dokument.rolle);
+    return d && Array.isArray(d.erforderlich) && d.erforderlich.length ? d.erforderlich.length : personenGesamt;
+}
+
+async function weiter() {
+    const s = await api('GET', '/status');
+    stand = s;
+    personenGesamt = s.personen || 1;
+    if (s.naechste_person) currentPerson = s.naechste_person;
+    dokument = s.dokument || null;
+    texteNoetig = s.texte_noetig !== false;
+    fortschrittZeichnen();
+    if (s.fertig === true || s.schritt === 'fertig') {
+        showStep('step-fertig');
+        return;
+    }
+    if (s.schritt === 'lesen') await seitenLaden();
+    else await unterschriftZeigen();
+}
+
+function fortschrittZeichnen() {
+    const liste = document.getElementById('dok-fortschritt');
+    liste.textContent = '';
+    const alle = (stand && stand.dokumente) || [];
+    if (alle.length < 2) {
+        liste.classList.add('hidden');
+        return;
+    }
+    alle.forEach((d, i) => {
+        const li = document.createElement('li');
+        const aktuell = !!dokument && d.rolle === dokument.rolle;
+        li.className = d.fertig ? 'dok-fertig' : (aktuell ? 'dok-aktuell' : 'dok-offen');
+        if (aktuell && !d.fertig) li.setAttribute('aria-current', 'step');
+        const marke = document.createElement('b');
+        marke.textContent = d.fertig ? '✓' : String(i + 1);
+        const text = document.createElement('span');
+        const noetig = (d.erforderlich || []).length;
+        const fertigePersonen = (d.unterschrieben || []).length;
+        text.textContent = `Dokument ${i + 1}: ${d.titel}` + (noetig > 1 && !d.fertig && fertigePersonen > 0 ? ` (${fertigePersonen} von ${noetig} unterschrieben)` : '');
+        li.append(marke, text);
+        liste.appendChild(li);
+    });
+    liste.classList.remove('hidden');
+}
+
+async function seitenLaden() {
+    showStep('step-seiten');
+    const seiten = stand.seiten || (dokument && dokument.seiten) || 0;
+    const titel = document.getElementById('dokument-titel');
+    if (mehrereDokumente()) {
+        titel.textContent = `Dokument ${dokument.nr} von ${dokument.von}: ${dokument.titel}`;
+        titel.classList.remove('hidden');
+    } else {
+        titel.classList.add('hidden');
+    }
+    gesehenSeiten = new Set();
+    document.getElementById('btn-gelesen').disabled = true;
+    document.getElementById('seiten-geladen').textContent = '0';
     document.getElementById('seiten-gesamt').textContent = seiten;
     document.getElementById('seiten-fortschritt').classList.remove('hidden');
 
     const container = document.getElementById('seiten-container');
+    container.textContent = '';
     for (let i = 1; i <= seiten; i++) {
         const img = document.createElement('img');
         img.alt = `Seite ${i}`;
@@ -148,7 +225,7 @@ async function loadSeiten() {
         container.appendChild(img);
 
         try {
-            const r = await fetch(`${API}/seite/${i}`, {credentials: 'same-origin'});
+            const r = await fetch(`${API}/seite/${i}${dokumentParam()}`, {credentials: 'same-origin'});
             if (!r.ok) {
                 if (r.status === 401) {
                     showStep('step-hinweis');
@@ -175,25 +252,42 @@ function updateSeitenProgress(gesamt) {
 
 async function markGelesen() {
     try {
-        await api('POST', '/gelesen', {bestaetigt: true});
+        await api('POST', '/gelesen', Object.assign({bestaetigt: true}, mehrereDokumente() ? {dokument: dokument.rolle} : {}));
         loescheMeldung();
-        await loadTexte();
+        await weiter();
     } catch (err) {
         if (!err.sitzung) zeigeMeldung(`Fehler: ${err.message}`);
     }
 }
 
 function personenBeschriftung() {
-    return personenGesamt > 1 ? `Unterschrift Person ${currentPerson} von ${personenGesamt}` : 'Unterschrift';
+    const teile = [];
+    if (mehrereDokumente()) teile.push(`Dokument ${dokument.nr} von ${dokument.von}`);
+    if (personenImDokument() > 1) teile.push(`Person ${currentPerson} von ${personenImDokument()}`);
+    return teile.length ? `Unterschrift ${teile.join(' · ')}` : 'Unterschrift';
+}
+
+async function unterschriftZeigen() {
+    showStep('step-unterschrift');
+    zeichenfeld.setzeBeschriftung(personenBeschriftung());
+    const zeile = document.getElementById('dokument-zeile');
+    if (mehrereDokumente()) {
+        zeile.textContent = `Sie unterschreiben: Dokument ${dokument.nr} von ${dokument.von}: ${dokument.titel}`;      // eigene Zeile über dem unveränderten Unterschriftssatz
+        zeile.classList.remove('hidden');
+    } else {
+        zeile.classList.add('hidden');
+    }
+    const block = document.getElementById('texte-block');
+    if (!texteNoetig) {                                   // Datenschutzinformation und Haken gelten einmal je Person und Vorgang
+        block.classList.add('hidden');
+        textHash = null;
+        return;
+    }
+    block.classList.remove('hidden');
+    await loadTexte();
 }
 
 async function loadTexte() {
-    showStep('step-unterschrift');
-    const status = await api('GET', '/status');
-    personenGesamt = status.personen || 1;
-    currentPerson = status.naechste_person || currentPerson;
-    zeichenfeld.setzeBeschriftung(personenBeschriftung());
-
     const texte = await api('GET', '/texte');
     textHash = texte.hash;
 
@@ -208,8 +302,11 @@ async function loadTexte() {
     document.getElementById('haken-text').textContent = texte.texte.haken || 'Ich habe die Datenschutzinformation gelesen';
 }
 
+// Nach diesen Fehlern des Servers hat sich der Stand geändert: Seite neu abgleichen statt weiterzumachen
+const STAND_GEAENDERT = ['lesen_fehlt', 'reihenfolge', 'dokument_nicht_dran'];
+
 async function sendUnterschrift() {
-    if (!document.getElementById('check-datenschutz').checked) {
+    if (texteNoetig && !document.getElementById('check-datenschutz').checked) {
         showError('unterschrift-error', 'Bitte bestätigen Sie, dass Sie die Datenschutzinformation gelesen haben');
         return;
     }
@@ -222,31 +319,57 @@ async function sendUnterschrift() {
     const knopf = document.getElementById('btn-unterschreiben');
     knopf.disabled = true;
     try {
-        const result = await api('POST', '/unterschrift', {
-            person: currentPerson,
-            bild: zeichenfeld.png(),
-            ich_unterschreibe: true,
-            haken: true,
-            text_hash: textHash
-        });
+        const daten = {person: currentPerson, bild: zeichenfeld.png(), ich_unterschreibe: true};
+        if (mehrereDokumente()) daten.dokument = dokument.rolle;
+        if (texteNoetig) {
+            daten.haken = true;
+            daten.text_hash = textHash;
+        }
+        const bisherDokument = dokument;
+        const bisher = currentPerson;
+        const result = await api('POST', '/unterschrift', daten);
+        document.getElementById('check-datenschutz').checked = false;
+        zeichenfeld.leeren();
 
         if (result.fertig) {
+            ((stand && stand.dokumente) || []).forEach(d => { d.fertig = true; });
+            fortschrittZeichnen();
             showStep('step-fertig');
-        } else if (result.naechste_person) {
-            const bisher = currentPerson;
-            currentPerson = result.naechste_person;
-            document.getElementById('check-datenschutz').checked = false;
-            zeichenfeld.leeren();
-            await loadTexte();
+        } else if (result.dokument_fertig) {
+            dokumentFertigZeigen(bisherDokument, result.naechste);
+        } else {
+            await weiter();
             const info = document.getElementById('person-info');
             info.textContent = `Person ${bisher} hat unterschrieben. Jetzt ist Person ${currentPerson} an der Reihe.`;
             info.classList.remove('hidden');
         }
     } catch (err) {
-        if (!err.sitzung) showError('unterschrift-error', err.message);
+        if (err.sitzung) return;
+        showError('unterschrift-error', err.message);
+        if (STAND_GEAENDERT.includes(err.code)) {
+            try {
+                await weiter();
+            } catch (e) {
+                // der Abgleich ist nur Hilfe; die Meldung steht schon da
+            }
+        }
     } finally {
         knopf.disabled = false;
     }
+}
+
+// Zwischenschritt: dieses Dokument ist von allen unterschrieben, das nächste wird gelesen
+function dokumentFertigZeigen(fertig, naechste) {
+    const alle = (stand && stand.dokumente) || [];
+    const dieses = alle.find(d => fertig && d.rolle === fertig.rolle);
+    if (dieses) dieses.fertig = true;
+    const folge = alle.find(d => naechste && d.rolle === naechste.dokument);
+    fortschrittZeichnen();
+    document.getElementById('dokument-fertig-titel').textContent = `Dokument ${fertig ? fertig.nr : ''} von ${fertig ? fertig.von : ''} unterschrieben ✓`;
+    document.getElementById('dokument-fertig-text').textContent = fertig ? `${fertig.titel} ist von allen Personen unterschrieben.` : '';
+    document.getElementById('btn-naechstes-dokument').textContent = `Weiter zu Dokument ${fertig ? fertig.nr + 1 : ''}: ${folge ? folge.titel : ''}`;
+    document.getElementById('person-info').classList.add('hidden');
+    showStep('step-dokument-fertig');
 }
 
 // ----- Handy-Übergabe: QR-Code am Computer, Unterschrift auf dem Handy, Bild kommt zurück ins Zeichenfeld -----
@@ -289,7 +412,7 @@ async function handyStarten() {
     if (handoff && handoff.timer) clearTimeout(handoff.timer);
     handoff = null;
     try {
-        const r = await api('POST', '/handoff', {person: currentPerson});
+        const r = await api('POST', '/handoff', Object.assign({person: currentPerson}, mehrereDokumente() ? {dokument: dokument.rolle} : {}));
         handoff = {id: r.handoff_id, timer: null};
         handyAnzeigen(true);
         qrBild(r.qr_svg);

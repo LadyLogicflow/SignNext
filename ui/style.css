@@ -408,3 +408,76 @@ dd {
     font-size: 0.875rem;
     color: #4b5563;
 }
+
+/* Mehrere Dokumente je Vorgang: Fortschritt, Dokumentzeile, Auswahl beim Download */
+.dok-fortschritt {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0 0 1.25rem;
+    list-style: none;
+}
+
+.dok-fortschritt li {
+    display: flex;
+    flex: 1 1 10rem;
+    gap: 0.5rem;
+    align-items: center;
+    padding: 0.6rem 0.8rem;
+    background: #f9fafb;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #4b5563;
+}
+
+.dok-fortschritt li b {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 1.6rem;
+    height: 1.6rem;
+    border-radius: 50%;
+    background: var(--color-border);
+    color: var(--color-primary);
+    font-size: 0.8rem;
+}
+
+.dok-fortschritt li.dok-aktuell {
+    border: 2px solid var(--color-primary);
+    color: var(--color-text);
+}
+
+.dok-fortschritt li.dok-fertig {
+    color: var(--color-text);
+}
+
+.dok-fortschritt li.dok-fertig b {
+    background: var(--color-success);
+    color: #fff;
+}
+
+.dokument-titel,
+.dokument-zeile {
+    margin-bottom: 0.75rem;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+}
+
+.dokument-wahl-knoepfe {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+
+#dokument-fertig-titel {
+    font-size: 1.35rem;
+}
+
+#btn-naechstes-dokument {
+    margin-top: 1rem;
+}

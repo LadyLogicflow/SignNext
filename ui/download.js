@@ -36,12 +36,33 @@ async function downloadFile(e) {
         showError('code-error', 'Bitte im Format TT.MM.JJJJ eingeben (acht Ziffern)');
         return;
     }
+    document.getElementById('dokument-wahl').classList.add('hidden');
+    await abrufen(code, null, null);
+}
 
+// Hat der Vorgang mehrere Dokumente, antwortet der Server nach dem richtigen Code mit der Liste; der Code bleibt dafür im Speicher dieser Seite
+function dokumentWahl(code, dokumente) {
+    const knoepfe = document.getElementById('dokument-wahl-knoepfe');
+    knoepfe.textContent = '';
+    dokumente.forEach(d => {
+        const knopf = document.createElement('button');
+        knopf.type = 'button';
+        knopf.className = 'btn btn-primary';
+        knopf.textContent = `${d.titel} herunterladen`;
+        knopf.addEventListener('click', () => abrufen(code, d.rolle, d.titel));
+        knoepfe.appendChild(knopf);
+    });
+    document.getElementById('dokument-wahl').classList.remove('hidden');
+}
+
+async function abrufen(code, rolle, titel) {
     try {
+        const body = {token, code};
+        if (rolle) body.dokument = rolle;
         const res = await fetch(API, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({token, code})
+            body: JSON.stringify(body)
         });
 
         if (res.status === 401) {
@@ -77,11 +98,19 @@ async function downloadFile(e) {
             return;
         }
 
+        if ((res.headers.get('Content-Type') || '').includes('application/json')) {
+            const liste = await res.json();
+            hideError('code-error');
+            document.getElementById('versuch-info').classList.add('hidden');
+            dokumentWahl(code, Array.isArray(liste.dokumente) ? liste.dokumente : []);
+            return;
+        }
+
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'dokument.pdf';
+        a.download = titel ? `${String(titel).replace(/[^A-Za-z0-9_-]+/g, '_')}.pdf` : 'dokument.pdf';
         a.click();
         URL.revokeObjectURL(url);
 

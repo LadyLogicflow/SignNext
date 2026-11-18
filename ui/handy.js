@@ -27,7 +27,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     try {
         const info = await api('/info', {token});
-        if (info.personen > 1) zeichenfeld.setzeBeschriftung(`Unterschrift Person ${info.person} von ${info.personen}`);
+        const d = info.dokument && info.dokument.von > 1 ? info.dokument : null;
+        const teile = [];
+        if (d) teile.push(`Dokument ${d.nr} von ${d.von}`);
+        if (info.personen > 1) teile.push(`Person ${info.person} von ${info.personen}`);
+        if (teile.length) zeichenfeld.setzeBeschriftung(`Unterschrift ${teile.join(' · ')}`);
+        if (d) {
+            const zeile = document.getElementById('handy-dokument');
+            zeile.textContent = `Sie unterschreiben: Dokument ${d.nr} von ${d.von}: ${d.titel}`;
+            zeile.classList.remove('hidden');
+        }
     } catch (err) {
         if (err.status === 404) linkUngueltig(err.message);
         else zeigeMeldung(err.message);

@@ -40,7 +40,7 @@ const STANDARD_LISTE = [{id: 1, status: 'bereit', erstellt: '2026-11-17T10:00:00
 const STANDARD_VORGANG = {id: 1, status: 'bereit', erstellt: '2026-11-17T13:05:00Z', name: 'Mustermann_Steuer2025', personen: 2, abgleich: {status: 'automatisch', treffer: ['steuernummer', 'mitgliedsnummer'], abweichend: [], fehlend: []},
     bestaetigt_am: null, versendet_am: null, unterschrieben_am: null, abgeschlossen_am: null, aufbewahrung_bis: null, erinnerungen_aus: false, link_status: null, dokumente: []};
 const STANDARD_ANGABEN = {name: {wert: 'Erika Muster', herkunft: 'pdf'}, geburtsdatum: {wert: '01.02.1960', herkunft: 'pdf', gesetzt: true}, email: {wert: 'erika@example.org', herkunft: 'pdf'}, personen: {wert: 2, herkunft: 'pdf'}};
-const zustand = {v: Object.assign({}, STANDARD_VORGANG, cfg.vorgang || {}), angaben: Object.assign(JSON.parse(JSON.stringify(STANDARD_ANGABEN)), JSON.parse(JSON.stringify(cfg.angaben || {}))), person: 1, unterschrieben: [], handoffAbfragen: 0, abgeholt: false, handoffNummer: 0, downloads: [], vorgaenge: JSON.parse(JSON.stringify(cfg.vorgaenge || STANDARD_LISTE))};
+const zustand = {v: Object.assign({}, STANDARD_VORGANG, cfg.vorgang || {}), angaben: Object.assign(JSON.parse(JSON.stringify(STANDARD_ANGABEN)), JSON.parse(JSON.stringify(cfg.angaben || {}))), person: 1, unterschrieben: [], handoffAbfragen: 0, abgeholt: false, handoffNummer: 0, downloads: [], gelesen: {}, dokUnter: {}, hakenPerson: {}, vorgaenge: JSON.parse(JSON.stringify(cfg.vorgaenge || STANDARD_LISTE))};
 const aufrufe = [];
 
 function senden(res, status, obj, typ) {
@@ -49,29 +49,69 @@ function senden(res, status, obj, typ) {
     res.end(roh);
 }
 
+// Dokumente des Vorgangs (cfg.dokumente), Standard: ein Dokument. Je Dokument die Personen mit Unterschriftsstelle (erforderlich).
+function dokumente() {
+    const liste = cfg.dokumente || [{rolle: 'B', titel: 'Anschreiben', seiten: 2}];
+    return liste.map(d => Object.assign({erforderlich: Array.from({length: cfg.personen}, (_, i) => i + 1)}, d));
+}
+
+// GET /api/v1/zugang/status: das aktuelle Dokument ist das erste, in dem noch jemand fehlt
+function mitgliedStand() {
+    const liste = dokumente().map(d => {
+        const u = zustand.dokUnter[d.rolle] || [];
+        return {rolle: d.rolle, titel: d.titel, seiten: d.seiten, erforderlich: d.erforderlich, unterschrieben: u.slice(), fertig: d.erforderlich.every(p => u.includes(p))};
+    });
+    const idx = liste.findIndex(d => !d.fertig);
+    if (idx < 0) return {schritt: 'fertig', fertig: true, dokumente: liste, personen: cfg.personen, unterschrieben: [], naechste_person: null, texte_noetig: false};
+    const cur = liste[idx];
+    const naechste = cur.erforderlich.find(p => !cur.unterschrieben.includes(p));
+    const gelesen = !!zustand.gelesen[cur.rolle];
+    const texteNoetig = !zustand.hakenPerson[naechste];
+    return {schritt: !gelesen ? 'lesen' : (texteNoetig ? 'texte' : 'unterschreiben'), dokument: {rolle: cur.rolle, titel: cur.titel, nr: idx + 1, von: liste.length, seiten: cur.seiten},
+        dokumente: liste, seiten: cur.seiten, geliefert: cur.seiten, personen: cfg.personen, unterschrieben: cur.unterschrieben.slice(), naechste_person: naechste, texte_noetig: texteNoetig};
+}
+
 function api(req, res, pfad, body) {
     const m = req.method;
     const fehler = (status, error, meldung, extra) => senden(res, status, Object.assign({error, meldung}, extra || {}));
     if (cfg.sitzungFehlt && pfad === cfg.sitzungFehlt) return fehler(401, 'sitzung_ungueltig', 'Sitzung ungültig');
     // Mitglied am Computer (Cookie sn_zugang)
-    if (pfad === '/api/v1/download' && m === 'POST') return fehler(401, 'angaben_stimmen_nicht', 'falsch', {versuch: 1, von: 5, gesperrt: false});
+    if (pfad === '/api/v1/download' && m === 'POST') {
+        if (body.code !== '01021960') return fehler(401, 'angaben_stimmen_nicht', 'falsch', {versuch: 1, von: 5, gesperrt: false});
+        if (cfg.downloadDokumente && !body.dokument) return senden(res, 200, {dokumente: cfg.downloadDokumente});
+        res.writeHead(200, {'Content-Type': 'application/pdf', 'X-Abruf': '1', 'X-Abruf-Max': '3'});
+        return res.end('%PDF-1.4 test');
+    }
     if (pfad === '/api/v1/zugang/hinweis') return senden(res, 200, {kennung: cfg.kennung || 'Kennung-1', zugangshinweis: 'Bitte Geburtsdatum eingeben.', freigegeben: cfg.texteFreigegeben !== false});
     if (pfad === '/api/v1/zugang/pruefen') return body.code === '01021960' ? senden(res, 200, {ok: true}) : fehler(401, 'angaben_stimmen_nicht', 'falsch', {versuch: 1, von: 5, gesperrt: false});
-    if (pfad === '/api/v1/zugang/status') {
-        return senden(res, 200, {schritt: 'unterschreiben', seiten: 2, geliefert: 2, personen: cfg.personen, unterschrieben: zustand.unterschrieben,
-            naechste_person: zustand.unterschrieben.length < cfg.personen ? zustand.unterschrieben.length + 1 : null});
-    }
+    if (pfad === '/api/v1/zugang/status') return senden(res, 200, mitgliedStand());
     if (pfad.startsWith('/api/v1/zugang/seite/')) {
         if (cfg.seitenFehler) return fehler(500, 'fehler', 'Serverfehler');
         res.writeHead(200, {'Content-Type': 'image/png'});
         return res.end(Buffer.from(PNG.split(',')[1], 'base64'));
     }
-    if (pfad === '/api/v1/zugang/gelesen') return senden(res, 200, {ok: true});
+    if (pfad === '/api/v1/zugang/gelesen') {
+        const st = mitgliedStand();
+        zustand.gelesen[body.dokument || (st.dokument && st.dokument.rolle)] = true;
+        return senden(res, 200, {ok: true});
+    }
     if (pfad === '/api/v1/zugang/texte') return senden(res, 200, {hash: 'h1', freigegeben: cfg.texteFreigegeben !== false, texte: Object.assign({datenschutz: 'Datenschutz', unterschriftssatz: 'Satz', haken: 'Ich habe gelesen'}, cfg.texteFehlen || {})});
     if (pfad === '/api/v1/zugang/unterschrift') {
         if (cfg.unterschriftFehler) return fehler(cfg.unterschriftFehler.status, cfg.unterschriftFehler.error, cfg.unterschriftFehler.meldung);
+        const st = mitgliedStand();
+        if (st.fertig) return fehler(409, 'reihenfolge', 'Es ist schon alles unterschrieben.');
+        const rolle = body.dokument || (st.dokumente.length === 1 ? st.dokument.rolle : null);
+        if (!rolle || !dokumente().some(d => d.rolle === rolle)) return fehler(400, 'dokument_ungueltig', 'Das Dokument ist ungültig.');
+        if (rolle !== st.dokument.rolle) return fehler(409, 'dokument_nicht_dran', 'Dieses Dokument ist noch nicht an der Reihe.');
+        if (body.person !== st.naechste_person) return fehler(409, 'reihenfolge', 'Diese Person ist noch nicht an der Reihe.');
+        if (!zustand.gelesen[rolle]) return fehler(409, 'lesen_fehlt', 'Bitte lesen Sie dieses Dokument zuerst vollständig.');
+        if (st.texte_noetig && !(body.haken === true && body.text_hash)) return fehler(409, 'texte_fehlen', 'Bitte bestätigen Sie die Datenschutzinformation.');
+        (zustand.dokUnter[rolle] = zustand.dokUnter[rolle] || []).push(body.person);
+        zustand.hakenPerson[body.person] = true;
         zustand.unterschrieben.push(body.person);
-        return body.person >= cfg.personen ? senden(res, 200, {fertig: true}) : senden(res, 200, {fertig: false, naechste_person: body.person + 1});
+        const nach = mitgliedStand();
+        if (nach.fertig) return senden(res, 200, {fertig: true});
+        return senden(res, 200, {fertig: false, dokument_fertig: nach.dokument.rolle !== rolle, naechste: {dokument: nach.dokument.rolle, person: nach.naechste_person}});
     }
     if (pfad === '/api/v1/zugang/handoff' && m === 'POST') {
         if (cfg.handoffStartFehler) return fehler(cfg.handoffStartFehler.status, cfg.handoffStartFehler.error, cfg.handoffStartFehler.meldung);
@@ -205,7 +245,7 @@ const server = http.createServer((req, res) => {
         if (pfad.startsWith('/api/')) {
             let body = null;
             try { body = teile.length ? JSON.parse(Buffer.concat(teile).toString('utf8')) : null; } catch (e) { body = null; }
-            const eintrag = {m: req.method, p: pfad, body};
+            const eintrag = {m: req.method, p: pfad, body, q: new URL(req.url, 'http://x').search};
             if (String(req.headers['content-type'] || '').startsWith('multipart/form-data')) {
                 const roh = Buffer.concat(teile).toString('latin1');
                 eintrag.dateien = [...roh.matchAll(/name="dateien"; filename="([^"]*)"/g)].map(x => x[1]);
@@ -414,6 +454,12 @@ async function main() {
             hilfe: doc.querySelector('.zeichenfeld-hilfe') ? doc.querySelector('.zeichenfeld-hilfe').textContent.trim() : null,
             fehlt: sichtbar('zeichenfeld-fehlt') && !doc.getElementById('zeichenfeld-fehlt').classList.contains('unsichtbar') ? text('zeichenfeld-fehlt') : null,
             code_gueltig: doc.getElementById('code') ? doc.getElementById('code').checkValidity() : null, code_fehler: sichtbar('code-error') ? text('code-error') : null,
+            fortschritt: sichtbar('dok-fortschritt') ? [...doc.querySelectorAll('#dok-fortschritt li')].map(li => ({klasse: li.className, marke: li.querySelector('b').textContent, text: li.querySelector('span').textContent, aktuell: li.getAttribute('aria-current') === 'step'})) : null,
+            dokument_titel: sichtbar('dokument-titel') ? text('dokument-titel') : null, dokument_zeile: sichtbar('dokument-zeile') ? text('dokument-zeile') : null,
+            handy_dokument: sichtbar('handy-dokument') ? text('handy-dokument') : null, texte_block_sichtbar: sichtbar('texte-block'),
+            dokument_fertig: sichtbar('step-dokument-fertig') ? {titel: text('dokument-fertig-titel'), text: text('dokument-fertig-text'), knopf: text('btn-naechstes-dokument')} : null,
+            dokument_wahl: sichtbar('dokument-wahl') ? [...doc.querySelectorAll('#dokument-wahl-knoepfe button')].map(b => b.textContent) : null,
+            downloads_mitglied: zustand.downloads.slice(), seiten_bilder: doc.querySelectorAll('#seiten-container img').length,
             hinweis_text: text('hinweis-text'), datenschutz_text: text('datenschutz-text'), schritt_seiten_sichtbar: sichtbar('step-seiten'), schritt_unterschrift_sichtbar: sichtbar('step-unterschrift'),
             testversion_im_text: /ENTWURF|PLATZHALTER|Freigabe offen|nicht freigegeben/.test(doc.body.textContent),
             fehlt_platz: sichtbar('zeichenfeld-fehlt'),                       // Element nimmt weiter Platz ein (kein display:none)
@@ -435,7 +481,7 @@ async function main() {
             pfad: win.location.pathname,
             alerts: alerts.slice(),
             zeichnung: Object.assign({}, zeichnung),
-            requests: aufrufe.slice(vor).map(a => ({m: a.m, p: a.p, body: a.body, dateien: a.dateien})),
+            requests: aufrufe.slice(vor).map(a => ({m: a.m, p: a.p, q: a.q, body: a.body, dateien: a.dateien})),
         };
     };
 

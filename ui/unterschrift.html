@@ -16,6 +16,9 @@
             <div id="meldung" class="error hidden" role="alert"></div>
             <button id="btn-neu-laden" type="button" class="btn btn-secondary hidden">Seite neu laden</button>
 
+            <!-- Fortschritt, wenn ein Vorgang mehrere Dokumente hat: jedes Dokument wird einzeln gelesen und unterschrieben -->
+            <ol id="dok-fortschritt" class="dok-fortschritt hidden" aria-label="Fortschritt der Dokumente"></ol>
+
             <!-- Schritt 1: Hinweis + Geburtsdatum -->
             <div id="step-hinweis" class="step">
                 <div id="hinweis-text" class="info-box"></div>
@@ -33,6 +36,7 @@
 
             <!-- Schritt 2: Seiten ansehen -->
             <div id="step-seiten" class="step hidden">
+                <h2 id="dokument-titel" class="dokument-titel hidden"></h2>
                 <div class="info-box">
                     <p>Bitte lesen Sie das Dokument vollständig durch. Alle Seiten müssen angezeigt worden sein.</p>
                 </div>
@@ -45,13 +49,17 @@
 
             <!-- Schritt 3: Datenschutz + Unterschrift -->
             <div id="step-unterschrift" class="step hidden">
-                <div id="datenschutz-text" class="datenschutz-box"></div>
+                <p id="dokument-zeile" class="dokument-zeile hidden"></p>
 
-                <div class="form-group">
-                    <label>
-                        <input type="checkbox" id="check-datenschutz">
-                        <span id="haken-text"></span>
-                    </label>
+                <div id="texte-block">
+                    <div id="datenschutz-text" class="datenschutz-box"></div>
+
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="check-datenschutz">
+                            <span id="haken-text"></span>
+                        </label>
+                    </div>
                 </div>
 
                 <div id="person-info" class="info-box hidden" role="status"></div>
@@ -80,6 +88,15 @@
 
                 <div id="unterschrift-error" class="error hidden"></div>
                 <button id="btn-unterschreiben" class="btn btn-primary">Unterschreiben</button>
+            </div>
+
+            <!-- Zwischenschritt: ein Dokument ist unterschrieben, das nächste folgt -->
+            <div id="step-dokument-fertig" class="step hidden">
+                <div class="success-box">
+                    <h2 id="dokument-fertig-titel"></h2>
+                    <p id="dokument-fertig-text"></p>
+                    <button id="btn-naechstes-dokument" type="button" class="btn btn-primary"></button>
+                </div>
             </div>
 
             <!-- Fertig -->
