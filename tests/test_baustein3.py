@@ -619,7 +619,7 @@ class TestPruefansicht(MailBasis):
     def test_nichts_davon_wird_gespeichert(self):
         vid = self.bereit()
         self.c.get("/api/v1/vorgaenge/%d/pruefung" % vid)
-        gesamt = self.db_text() + self.logtext.getvalue() + json.dumps(self.audit_zeilen())
+        gesamt = pdfs.ohne_vorgangsname(self.db_text()) + self.logtext.getvalue() + json.dumps(self.audit_zeilen())      # Name des Mitglieds nur im Feld 'name' des Vorgangs (catrin 18.11.)
         for wert in pdfs.PERSONENDATEN:
             self.assertNotIn(wert, gesamt, wert)
         z = self.audit_zeilen("pruefansicht_gelesen")
@@ -813,13 +813,13 @@ class TestVersand(MailBasis):
         _, text = self.mail_text(srv.nachrichten[0])
         token = re.search(r"/u#([A-Za-z0-9_-]+)", text).group(1)
         antworten = r.get_data(as_text=True) + self.c.get("/api/v1/vorgaenge/%d" % vid).get_data(as_text=True) + self.c.get("/api/v1/vorgaenge/%d/pruefung" % vid).get_data(as_text=True)
-        gesamt = antworten + self.db_text() + self.db_bytes().decode("latin-1") + self.logtext.getvalue() + json.dumps(self.audit_zeilen())
+        gesamt = antworten + pdfs.ohne_vorgangsname(self.db_text()) + self.db_bytes().decode("latin-1") + self.logtext.getvalue() + json.dumps(self.audit_zeilen())
         for geheim in (token, PW, "01021960", "/u#"):
             self.assertNotIn(geheim, gesamt, geheim)
         intern = self.db_text() + self.db_bytes().decode("latin-1") + self.logtext.getvalue() + json.dumps(self.audit_zeilen())
         self.assertNotIn(pdfs.DOB, intern)                                  # die Prüfansicht zeigt das Datum aus dem PDF an, gespeichert wird es nie
         for wert in (pdfs.MAIL, pdfs.NAME, pdfs.VORNAME, pdfs.ID_A, pdfs.STNR):
-            self.assertNotIn(wert, self.db_text() + self.logtext.getvalue() + json.dumps(self.audit_zeilen()), wert)
+            self.assertNotIn(wert, pdfs.ohne_vorgangsname(self.db_text()) + self.logtext.getvalue() + json.dumps(self.audit_zeilen()), wert)
         self.assertEqual([x["details"] for x in self.audit_zeilen("versendet")], ["id=%d" % vid])
 
     def test_vorgang_antwort_enthaelt_keine_geheimnisse(self):

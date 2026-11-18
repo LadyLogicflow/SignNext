@@ -457,6 +457,7 @@ class TestUpload(RouteBasis):
         hochladen(self.c, b"kaputt")
         gesamt = r.get_data(as_text=True) + self.db_text() + log.getvalue()
         gesamt += json.dumps(self.c.get("/api/v1/vorgaenge/%d" % r.get_json()["vorgang_id"]).get_json())
+        gesamt = pdfs.ohne_vorgangsname(gesamt)                                            # der Name des Mitglieds steht gewollt im Feld 'name' des Vorgangs (nur dort)
         for wert in pdfs.PERSONENDATEN:
             self.assertNotIn(wert, gesamt, wert)
         # der Dateiinhalt selbst liegt natürlich als PDF auf der Platte, aber nur im Mandantenordner
