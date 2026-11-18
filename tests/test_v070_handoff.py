@@ -120,7 +120,7 @@ class TestAblauf(HandoffBasis):
         hid, token, _ = self.neu()
         self.assertEqual(self.hstatus(hid)["status"], "wartet")
         r = self.handy("/info", {"token": token})
-        self.assertEqual((r.status_code, r.get_json()), (200, {"person": 1, "personen": 2, "dokument": {"rolle": "B", "titel": "Anschreiben", "nr": 1, "von": 2}, "status": "verbunden"}))
+        self.assertEqual((r.status_code, r.get_json()), (200, {"person": 1, "personen": 2, "dokument": {"rolle": "B", "titel": "Vollständigkeitserklärung", "nr": 1, "von": 2}, "status": "verbunden"}))
         self.assertEqual(self.hstatus(hid)["status"], "verbunden")
         self.assertEqual(self.abholen(hid).get_json()["error"], "noch_nicht_gezeichnet")
         r = self.handy("/unterschrift", {"token": token, "bild": uri(png_bytes())})
@@ -289,7 +289,7 @@ class TestJeDokument(HandoffBasis):
         self.lesen()
         hid, token, _ = self.neu(1, "A")
         r = self.handy("/info", {"token": token})
-        self.assertEqual(r.get_json()["dokument"], {"rolle": "A", "titel": "Protokoll", "nr": 2, "von": 2})
+        self.assertEqual(r.get_json()["dokument"], {"rolle": "A", "titel": "Freizeichnungsprotokoll", "nr": 2, "von": 2})
         self.assertEqual(self.handy("/unterschrift", {"token": token, "bild": uri(png_bytes())}).status_code, 200)
         bild = self.abholen(hid).get_json()["bild"]
         r = self.sign(1, "", bild=bild)                                                                 # am Computer bestätigt: Zustimmung stammt aus dem Anschreiben

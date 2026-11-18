@@ -570,7 +570,7 @@ class TestSitzung(ZugangBasis):
         self.einloggen()
         j = self.hole("/status").get_json()
         self.assertEqual((j["schritt"], j["seiten"], j["geliefert"], j["personen"], j["unterschrieben"], j["naechste_person"]), ("lesen", SEITEN_B, 0, 2, [], 1))
-        self.assertEqual((j["dokument"], j["texte_noetig"]), ({"rolle": "B", "titel": "Anschreiben", "nr": 1, "von": 2, "seiten": SEITEN_B}, True))
+        self.assertEqual((j["dokument"], j["texte_noetig"]), ({"rolle": "B", "titel": "Vollständigkeitserklärung", "nr": 1, "von": 2, "seiten": SEITEN_B}, True))
         self.assertEqual([(d["rolle"], d["seiten"], d["erforderlich"], d["unterschrieben"], d["fertig"]) for d in j["dokumente"]], [("B", SEITEN_B, [1, 2], [], False), ("A", SEITEN_A, [1, 2], [], False)])
         self.lesen()
         self.assertEqual(self.hole("/status").get_json()["schritt"], "texte")

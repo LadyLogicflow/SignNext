@@ -132,7 +132,7 @@ class TestAbschluss(B5):
         self.alles_unterschreiben()
         import hashlib
         texte_je_dokument = {}
-        for rolle, titel in (("B", "Anschreiben"), ("A", "Protokoll")):
+        for rolle, titel in (("B", "Vollständigkeitserklärung"), ("A", "Freizeichnungsprotokoll")):
             nachweis = db.dokument_bytes("1001", self.vid, "N_" + rolle)
             text = texte_je_dokument[rolle] = "\n".join(p.extract_text() for p in PdfReader(io.BytesIO(nachweis)).pages)
             self.assertIn("Vorgang Nr. %d" % self.vid, text)
@@ -355,7 +355,7 @@ class TestDownload(B5):
         self.abgeschlossen()
         token = self.link_aus_mail()
         r = self.hole_download(token, dokument=False)                                 # richtiger Code, aber keine Wahl: Liste, kein Abruf gezählt
-        self.assertEqual((r.status_code, r.get_json()), (200, {"dokumente": [{"rolle": "B", "titel": "Anschreiben"}, {"rolle": "A", "titel": "Protokoll"}]}))
+        self.assertEqual((r.status_code, r.get_json()), (200, {"dokumente": [{"rolle": "B", "titel": "Vollständigkeitserklärung"}, {"rolle": "A", "titel": "Freizeichnungsprotokoll"}]}))
         self.assertNotIn("X-Abruf", r.headers)
         for ungueltig in ("M", "X", "S_B", "b"):
             self.assertEqual(self.hole_download(token, dokument=ungueltig).get_json()["dokumente"][0]["rolle"], "B", ungueltig)
