@@ -65,9 +65,9 @@ class TestPruefen(unittest.TestCase):
         p = seite(lauf(seite=SEITE, ops=[]))["pruefen"]
         self.assertEqual(p["pdf"], "/api/v1/vorgaenge/1/dokument")
         self.assertEqual((p["name"], p["name_hinweis"]), ("Erika Muster", "Vorgang: Mustermann_Steuer2025"))
-        self.assertEqual((p["personen"], p["pers_hinweis"]), ("2", "Aus dem Steuerprotokoll erkannt."))
-        self.assertEqual((p["email"], p["email_hinweis"]), ("erika@example.org", "Aus dem Anschreiben übernommen."))
-        self.assertEqual((p["geb"], p["geb_hinweis"]), ("01.02.1960", "Aus dem Protokoll übernommen."))
+        self.assertEqual((p["personen"], p["pers_hinweis"]), ("2", "Aus dem Freizeichnungsprotokoll erkannt."))
+        self.assertEqual((p["email"], p["email_hinweis"]), ("erika@example.org", "Aus der Vollständigkeitserklärung übernommen."))
+        self.assertEqual((p["geb"], p["geb_hinweis"]), ("01.02.1960", "Aus dem Freizeichnungsprotokoll übernommen."))
         self.assertFalse(p["haken"])
         self.assertEqual((p["haken_text"], p["knopf"]), ("Ja, die Angaben stimmen.", "Weiter zum Senden"))
         self.assertIsNone(p["abweichung"])
@@ -118,7 +118,7 @@ class TestPruefen(unittest.TestCase):
         ab = {"abgleich": {"status": "bestaetigung_noetig", "treffer": ["mitgliedsnummer"], "abweichend": ["steuernummer"], "fehlend": []}}
         o = lauf(seite=SEITE, api=dict(stand("bestaetigung_noetig", **ab)), ops=[{"op": "haken_id", "id": "angaben-stimmen", "warte": 50}, {"op": "submit_id", "id": "form-angaben", "warte": 800}])
         p = seite(o)["pruefen"]
-        self.assertEqual(p["abweichung"], "Bitte kurz prüfen: Anschreiben und Steuerprotokoll weichen bei „Steuernummer“ voneinander ab. Gehören beide zu demselben Mitglied?")
+        self.assertEqual(p["abweichung"], "Bitte kurz prüfen: Vollständigkeitserklärung und Freizeichnungsprotokoll weichen bei „Steuernummer“ voneinander ab. Gehören beide zu demselben Mitglied?")
         self.assertEqual(p["haken_text"], "Ja, die Angaben stimmen und beide Dokumente gehören zu diesem Mitglied.")
         bestaetigt = anfragen(o, 1, "POST")
         self.assertEqual(bestaetigt, [("POST", "/api/v1/vorgaenge/1/abgleich-bestaetigen", {"bestaetigt": True})])

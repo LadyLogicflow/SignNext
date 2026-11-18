@@ -231,12 +231,12 @@ class TestBeraterPruefenJeDokument(unittest.TestCase):
     def test_ein_dokument_bleibt_wie_bisher(self):
         p = v(lauf(seite=SEITE, api=vorg("bereit"), ops=[]))["pruefen"]
         self.assertEqual((p["reiter"], p["pdf"]), (None, "/api/v1/vorgaenge/1/dokument"))
-        self.assertIn("Vorn steht das Anschreiben", p["dokument_hinweis"])
+        self.assertIn("Vorn steht die Vollständigkeitserklärung", p["dokument_hinweis"])
 
     def test_vorher_noch_ohne_fortschritt_reihenfolge_anschreiben_vor_protokoll(self):
         # vor dem Abschluss zeigt die alte Liste "dokumente" die Rollen A/B; die Reiter folgen immer der Reihenfolge des Mitglieds (B vor A)
         o = lauf(seite=SEITE, api=vorg("bereit", dokumente=[{"id": 1, "rolle": "A"}, {"id": 2, "rolle": "B"}]), ops=[])
-        self.assertEqual([r["text"] for r in v(o)["pruefen"]["reiter"]], ["Anschreiben", "Protokoll"])
+        self.assertEqual([r["text"] for r in v(o)["pruefen"]["reiter"]], ["Vollständigkeitserklärung", "Freizeichnungsprotokoll"])
 
 
 @unittest.skipUnless(BEREIT, HINWEIS)

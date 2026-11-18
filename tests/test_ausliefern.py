@@ -271,6 +271,18 @@ class TestBeraterRahmenStatik(unittest.TestCase):
         self.assertIn("'#A3E635'", js)
         self.assertNotIn("BSt Next", js)
 
+    def test_dokumenttitel_sind_freizeichnungsprotokoll_und_vollstaendigkeitserklaerung(self):
+        # catrin 18.11.2026 (14:47): A = Freizeichnungsprotokoll, B = Vollständigkeitserklärung; die Dateinamen (Anschreiben/Protokoll) bleiben nur als Dateinamen-Fallback
+        pruefung = (UI / "pruefung.js").read_text(encoding="utf-8")
+        self.assertIn("const DOK_TITEL = {B: 'Vollständigkeitserklärung', A: 'Freizeichnungsprotokoll'};", pruefung)
+        self.assertIn("const DOK_DATEINAME = {B: 'Anschreiben', A: 'Protokoll'};", pruefung)
+        self.assertIn("const ROLLEN = {B: 'Vollständigkeitserklärung', A: 'Freizeichnungsprotokoll'};", (UI / "upload.js").read_text(encoding="utf-8"))
+        self.assertIn("const DATEINAME_ROLLE = {B: 'Anschreiben', A: 'Protokoll'};", (UI / "download.js").read_text(encoding="utf-8"))        # /d: Dateinamen unverändert
+        for name in ("pruefung.html", "vorgaenge.html"):
+            text = (UI / name).read_text(encoding="utf-8")
+            self.assertNotIn("Steuerprotokoll", text, name)
+            self.assertNotRegex(text, r"das Anschreiben|Anschreiben und", name)
+
     def test_der_testdaten_balken_steht_nirgends_mehr_im_code(self):
         for datei in [d for d in UI.glob("*") if d.is_file()]:
             text = datei.read_text(encoding="utf-8")

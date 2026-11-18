@@ -205,5 +205,61 @@ class TestDateinamenVomServer(unittest.TestCase):
         self.assertEqual(v(alt, 0)["downloads"], ["dokument_1.pdf"])
 
 
+VE, FZ = "Vollständigkeitserklärung", "Freizeichnungsprotokoll"
+
+
+def mit_titeln(fp):
+    """dokumente_fortschritt mit den neuen Titeln des Servers (B = Vollständigkeitserklärung, A = Freizeichnungsprotokoll)."""
+    for eintrag in fp:
+        eintrag["titel"] = VE if eintrag["rolle"] == "B" else FZ
+    return fp
+
+
+@unittest.skipUnless(BEREIT, HINWEIS)
+class TestNeueTitel(unittest.TestCase):
+    """catrin 18.11.2026 (14:47): A = Freizeichnungsprotokoll, B = Vollständigkeitserklärung statt Protokoll/Anschreiben; die Dateinamen bleiben unverändert."""
+
+    def test_abholen_knoepfe_und_texte_mit_richtigem_artikel(self):
+        o = lauf(seite=SEITE, api=vorg(ampel="gelb", dokumente_fortschritt=mit_titeln(mit_abholung()), **FERTIG), ops=[])
+        a = v(o)["abholen"]
+        self.assertEqual(a["bloecke"], [{"rolle": "B", "titel": VE, "knoepfe": [VE + " herunterladen", "Nachweis zur " + VE + " herunterladen"]},
+                                        {"rolle": "A", "titel": FZ, "knoepfe": [FZ + " herunterladen", "Nachweis zum " + FZ + " herunterladen"]}])
+        self.assertEqual(a["block_texte"], ["Die unterschriebene " + VE + " und der Nachweis, wer wann unterschrieben hat.", "Das unterschriebene " + FZ + " und der Nachweis, wer wann unterschrieben hat."])
+
+    def test_ein_dokument_nennt_seinen_titel(self):
+        for rolle, titel, satz in (("A", FZ, "Das unterschriebene " + FZ + " mit den Unterschriften."), ("B", VE, "Die unterschriebene " + VE + " mit den Unterschriften.")):
+            f = [{"rolle": rolle, "titel": titel, "erforderlich": [1, 2], "unterschrieben": [1, 2], "fertig": True}]
+            self.assertEqual(v(lauf(seite=SEITE, api=vorg(dokumente_fortschritt=f, **FERTIG), ops=[]))["abholen"]["dokument_text"], satz, rolle)
+
+    def test_dateinamen_ohne_servername_bleiben_wie_bisher(self):
+        api = dict(vorg(ampel="gelb", **FERTIG), dokumente=[{"rolle": "B", "titel": VE, "seiten": 2}, {"rolle": "A", "titel": FZ, "seiten": 3}], abholSicht=True)
+        o = lauf(seite=SEITE, api=api, ops=[{"op": "klick_id", "id": "btn-alles-dl", "warte": 100}, {"op": "warten", "warte": 3500}])
+        self.assertEqual(v(o, 1)["downloads"], ["dokument_Anschreiben_1.pdf", "nachweis_Anschreiben_1.pdf", "dokument_Protokoll_1.pdf", "nachweis_Protokoll_1.pdf"])
+        self.assertEqual(v(o, 1)["abholen"]["alles"]["fortschritt"][:6], "4 von ")
+
+    def test_stand_nennt_die_neuen_titel(self):
+        d = v(lauf(seite=SEITE, api=vorg(dokumente_fortschritt=mit_titeln(fortschritt((2, True), (0, False)))), ops=[]))
+        self.assertEqual(d["status"]["hinweis"]["text"], VE + " ist unterschrieben, " + FZ + " fehlt noch. Das Mitglied kann mit demselben Link weitermachen.")
+        self.assertEqual([x["titel"] for x in d["status"]["dokumente"]], [VE, FZ])
+
+    def test_pruefen_reiter_aus_dem_api_und_als_fallback(self):
+        api = vorg("bereit", dokumente_fortschritt=mit_titeln(fortschritt((0, False), (0, False))))
+        self.assertEqual([r["text"] for r in v(lauf(seite=SEITE, api=api, ops=[]))["pruefen"]["reiter"]], [VE, FZ])
+        ohne = vorg("bereit", dokumente=[{"id": 1, "rolle": "A"}, {"id": 2, "rolle": "B"}])                      # noch kein Fortschritt: zentraler Fallback DOK_TITEL
+        self.assertEqual([r["text"] for r in v(lauf(seite=SEITE, api=ohne, ops=[]))["pruefen"]["reiter"]], [VE, FZ])
+
+    def test_mitglied_titel_vom_server_und_download_dateinamen_unveraendert(self):
+        dokumente = [{"rolle": "B", "titel": VE, "seiten": 2}, {"rolle": "A", "titel": FZ, "seiten": 3}]
+        o = lauf(seite="/u", fragment="#tok", api={"personen": 1, "dokumente": dokumente}, ops=[{"op": "code", "wert": "01.02.1960", "warte": 700}])
+        a = o["schritte"][0]["zustand"]
+        self.assertEqual(a["dokument_titel"], "Dokument 1 von 2: " + VE)
+        self.assertEqual([f["text"] for f in a["fortschritt"]], ["Dokument 1: " + VE, "Dokument 2: " + FZ])
+        ops = [{"op": "code", "form": "form-download", "wert": "01.02.1960", "warte": 400}, {"op": "klick_text", "sel": "#dokument-wahl-knoepfe button", "text": FZ + " herunterladen", "warte": 400},
+               {"op": "klick_text", "sel": "#dokument-wahl-knoepfe button", "text": VE + " herunterladen", "warte": 400}]
+        d = lauf(seite="/d", fragment="#tok", api={"downloadDokumente": [{"rolle": "B", "titel": VE}, {"rolle": "A", "titel": FZ}]}, ops=ops)
+        self.assertEqual(d["schritte"][0]["zustand"]["dokument_wahl"], [VE + " herunterladen", FZ + " herunterladen"])
+        self.assertEqual(d["schritte"][2]["zustand"]["downloads_mitglied"], ["Protokoll.pdf", "Anschreiben.pdf"])           # Dateinamen unverändert
+
+
 if __name__ == "__main__":
     unittest.main()

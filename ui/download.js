@@ -55,6 +55,9 @@ function dokumentWahl(code, dokumente) {
     document.getElementById('dokument-wahl').classList.remove('hidden');
 }
 
+// Dateinamen bleiben wie bisher (die Titel auf der Seite kommen vom Server)
+const DATEINAME_ROLLE = {B: 'Anschreiben', A: 'Protokoll'};
+
 async function abrufen(code, rolle, titel) {
     try {
         const body = {token, code};
@@ -110,7 +113,7 @@ async function abrufen(code, rolle, titel) {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = titel ? `${String(titel).replace(/[^A-Za-z0-9_-]+/g, '_')}.pdf` : 'dokument.pdf';
+        a.download = DATEINAME_ROLLE[rolle] ? `${DATEINAME_ROLLE[rolle]}.pdf` : (titel ? `${String(titel).replace(/[^A-Za-z0-9_-]+/g, '_')}.pdf` : 'dokument.pdf');
         a.click();
         URL.revokeObjectURL(url);
 

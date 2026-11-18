@@ -15,7 +15,9 @@ let mailZugang = null;
 let istDemo = false;
 let linkBox = null;                 // Link/QR aus dem Demo (Antwort von versenden)
 let rueckfrageJa = null;
-const DOK_TITEL = {B: 'Anschreiben', A: 'Protokoll'};
+const DOK_TITEL = {B: 'Vollständigkeitserklärung', A: 'Freizeichnungsprotokoll'};
+// Bisherige Namen für Dateien, wenn der Server keinen Dateinamen liefert (die Dateinamen bleiben unverändert)
+const DOK_DATEINAME = {B: 'Anschreiben', A: 'Protokoll'};
 const FEHLEND_TEXT = {email: 'E-Mail', geburtsdatum: 'Geburtsdatum', personen: 'Zahl der Unterschriften'};
 const KRITERIEN = {steuernummer: 'Steuernummer', steuer_id: 'Steuer-ID', mitgliedsnummer: 'Mitgliedsnummer'};
 const el = (id) => document.getElementById(id);
@@ -66,6 +68,11 @@ function ampelZeigen(id) {
 function abgeholtText(wann) {
     return wann ? `abgeholt am ${datumUhr(wann)}` : 'noch nicht abgeholt';
 }
+
+// Artikel zum Titel: „-erklärung“ ist weiblich (zur / Die), „Freizeichnungsprotokoll“ und „Anschreiben“ sachlich (zum / Das)
+const weiblich = (titel) => /ung$/i.test(String(titel));
+const zumTitel = (titel) => `${weiblich(titel) ? 'zur' : 'zum'} ${titel}`;
+const dasUnterschriebene = (titel) => `${weiblich(titel) ? 'Die' : 'Das'} unterschriebene ${titel}`;
 
 function mehrereDokumente() {
     return dokumenteDesVorgangs().length > 1;
@@ -168,8 +175,8 @@ async function zeigeSchritt(wunsch) {
 // ---------- Schritt 2: Angaben prüfen ----------
 
 const HERKUNFT_TEXT = {
-    email: {pdf: 'Aus dem Anschreiben übernommen.', manuell: 'Von Ihnen eingetragen.', abweichend: 'Anschreiben und Protokoll nennen unterschiedliche Adressen – bitte prüfen.', fehlt: 'Fehlt noch – bitte eintragen.'},
-    personen: {pdf: 'Aus dem Steuerprotokoll erkannt.', manuell: 'Von Ihnen festgelegt.', abweichend: 'Bitte prüfen.', fehlt: 'Bitte wählen.'}
+    email: {pdf: 'Aus der Vollständigkeitserklärung übernommen.', manuell: 'Von Ihnen eingetragen.', abweichend: 'Vollständigkeitserklärung und Freizeichnungsprotokoll nennen unterschiedliche Adressen – bitte prüfen.', fehlt: 'Fehlt noch – bitte eintragen.'},
+    personen: {pdf: 'Aus dem Freizeichnungsprotokoll erkannt.', manuell: 'Von Ihnen festgelegt.', abweichend: 'Bitte prüfen.', fehlt: 'Bitte wählen.'}
 };
 
 function zeigePruefen() {
@@ -186,7 +193,7 @@ function zeigePruefen() {
     el('geburtsdatum').value = g.wert || '';
     el('geburtsdatum').placeholder = g.gesetzt && !g.wert ? 'eingetragen – zum Ändern neu eingeben' : 'TT.MM.JJJJ';
     el('geb-hinweis').textContent = g.gesetzt
-        ? (g.wert ? 'Aus dem Protokoll übernommen.' : 'Von Ihnen eingetragen (aus Datenschutzgründen nicht angezeigt). Zum Ändern neu eintragen.')
+        ? (g.wert ? 'Aus dem Freizeichnungsprotokoll übernommen.' : 'Von Ihnen eingetragen (aus Datenschutzgründen nicht angezeigt). Zum Ändern neu eintragen.')
         : 'Fehlt noch – bitte eintragen.';
     ['pers-error', 'email-error', 'geb-error', 'haken-error'].forEach(i => zeigeFehler(i, ''));
     zeigeFehler('pruefen-fehler', '');
@@ -197,8 +204,8 @@ function zeigePruefen() {
     if (abweichend) {
         const liste = ((d.abgleich && d.abgleich.abweichend) || []).map(k => KRITERIEN[k]).filter(Boolean);
         el('abweichung-text').textContent = liste.length
-            ? `Bitte kurz prüfen: Anschreiben und Steuerprotokoll weichen bei „${liste.join('“ und „')}“ voneinander ab. Gehören beide zu demselben Mitglied?`
-            : 'Bitte kurz prüfen: Anschreiben und Steuerprotokoll lassen sich nicht sicher demselben Mitglied zuordnen. Gehören beide zusammen?';
+            ? `Bitte kurz prüfen: Vollständigkeitserklärung und Freizeichnungsprotokoll weichen bei „${liste.join('“ und „')}“ voneinander ab. Gehören beide zu demselben Mitglied?`
+            : 'Bitte kurz prüfen: Vollständigkeitserklärung und Freizeichnungsprotokoll lassen sich nicht sicher demselben Mitglied zuordnen. Gehören beide zusammen?';
     }
     el('btn-weiter').disabled = false;
 }
@@ -210,7 +217,7 @@ function vorschauZeigen(rolle) {
     reiter.textContent = '';
     if (dok.length < 2) {
         reiter.classList.add('hidden');
-        el('dokument-hinweis').textContent = 'Vorn steht das Anschreiben, dahinter das Steuerprotokoll mit den Unterschriftsstellen.';
+        el('dokument-hinweis').textContent = 'Vorn steht die Vollständigkeitserklärung, dahinter das Freizeichnungsprotokoll mit den Unterschriftsstellen.';
         const adresse = dokumentAdresse(null);
         el('pdf-viewer').src = adresse;
         el('dokument-neues-fenster').href = adresse;
@@ -549,6 +556,7 @@ function abholenBloecke() {
     el('abholen-einzeln').classList.toggle('hidden', mehrere);
     if (!mehrere) {
         const d = dok[0] || {};
+        if (d.titel) el('abholen-dokument-text').textContent = `${dasUnterschriebene(d.titel)} mit den Unterschriften.`;
         el('abgeholt-dokument').textContent = `Dokument: ${abgeholtText(d.abgeholt || vorgang.abgeholt_am || vorgang.dokument_abgeholt_am)}`;
         el('abgeholt-nachweis').textContent = `Nachweis: ${abgeholtText(d.nachweisAbgeholt || vorgang.nachweis_abgeholt_am)}`;
     }
@@ -564,14 +572,14 @@ function abholenBloecke() {
         h.textContent = d.titel;
         const p = document.createElement('p');
         p.className = 'upload-regeln';
-        p.textContent = `Das unterschriebene ${d.titel} und der Nachweis, wer wann unterschrieben hat.`;
+        p.textContent = `${dasUnterschriebene(d.titel)} und der Nachweis, wer wann unterschrieben hat.`;
         const abgeholt = document.createElement('p');
         abgeholt.className = 'upload-regeln abgeholt-zeile';
         abgeholt.dataset.abgeholt = d.rolle;
         abgeholt.textContent = `Dokument: ${abgeholtText(d.abgeholt)} · Nachweis: ${abgeholtText(d.nachweisAbgeholt)}`;
         const knoepfe = document.createElement('div');
         knoepfe.className = 'abholen-knoepfe';
-        [['dokument', `${d.titel} herunterladen`], ['nachweis', `Nachweis zum ${d.titel} herunterladen`]].forEach(([art, text]) => {
+        [['dokument', `${d.titel} herunterladen`], ['nachweis', `Nachweis ${zumTitel(d.titel)} herunterladen`]].forEach(([art, text]) => {
             const b = document.createElement('button');
             b.type = 'button';
             b.className = 'btn btn-primary';
@@ -592,7 +600,7 @@ function dateiName(art, rolle, titel) {
         ? ((dok && dok.nachweisDateiname) || (!rolle && vorgang.nachweis_dateiname))
         : ((dok && dok.dateiname) || (!rolle && vorgang.dateiname));
     if (typeof vomServer === 'string' && vomServer.trim()) return vomServer.trim();
-    return rolle ? `${art}_${String(titel || rolle).replace(/[^A-Za-z0-9_-]+/g, '_')}_${vorgangId}.pdf` : `${art}_${vorgangId}.pdf`;
+    return rolle ? `${art}_${DOK_DATEINAME[rolle] || String(titel || rolle).replace(/[^A-Za-z0-9_-]+/g, '_')}_${vorgangId}.pdf` : `${art}_${vorgangId}.pdf`;
 }
 
 // Holt eine Datei als Blob (ein Abruf; der Server merkt sich "abgeholt am"); Fehler mit der Meldung des Servers
@@ -638,7 +646,7 @@ const pause = (ms) => new Promise(ok => setTimeout(ok, ms));
 function dateienDesVorgangs() {
     const dok = dokumenteDesVorgangs();
     if (dok.length > 1) {
-        return dok.flatMap(d => [{art: 'dokument', rolle: d.rolle, titel: d.titel, text: d.titel}, {art: 'nachweis', rolle: d.rolle, titel: d.titel, text: `Nachweis zum ${d.titel}`}]);
+        return dok.flatMap(d => [{art: 'dokument', rolle: d.rolle, titel: d.titel, text: d.titel}, {art: 'nachweis', rolle: d.rolle, titel: d.titel, text: `Nachweis ${zumTitel(d.titel)}`}]);
     }
     return [{art: 'dokument', rolle: null, titel: null, text: 'Dokument'}, {art: 'nachweis', rolle: null, titel: null, text: 'Nachweis'}];
 }

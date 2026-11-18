@@ -15,8 +15,8 @@
         kein_pdf: 'Das ist keine PDF-Datei.',
         keine_textebene: 'Die PDF-Datei enthält keinen Text (vermutlich ein Scan). Bitte erzeugen Sie die Datei direkt aus der Steuersoft bzw. Textverarbeitung als PDF.'
     };
-    // Typ aus dem Backend (pdf_analyse): B = Anschreiben/Vollständigkeitserklärung, A = Steuersoft-Protokoll. Anzeige immer zuerst das Anschreiben.
-    const ROLLEN = {B: 'Anschreiben', A: 'Steuerprotokoll'};
+    // Typ aus dem Backend (pdf_analyse): B = Vollständigkeitserklärung, A = Freizeichnungsprotokoll (Steuersoft). Anzeige immer zuerst die Vollständigkeitserklärung.
+    const ROLLEN = {B: 'Vollständigkeitserklärung', A: 'Freizeichnungsprotokoll'};
     const ROLLEN_REIHE = ['B', 'A'];
 
     let auswahl = [];
@@ -73,7 +73,7 @@
             li.appendChild(weg);
             liste.appendChild(li);
         });
-        el('upload-hinweis').textContent = auswahl.length === 1 ? 'Sie können noch ein zweites PDF ablegen (z. B. Anschreiben und Steuerprotokoll) oder jetzt nur dieses hochladen.' : '';
+        el('upload-hinweis').textContent = auswahl.length === 1 ? 'Sie können noch ein zweites PDF ablegen (z. B. Vollständigkeitserklärung und Freizeichnungsprotokoll) oder jetzt nur dieses hochladen.' : '';
         box.classList.toggle('hidden', auswahl.length === 0 || laeuft);
     }
 
@@ -99,7 +99,7 @@
         }
         const frisch = liste.filter(d => !auswahl.some(a => a.name === d.name && a.size === d.size));
         if (auswahl.length + frisch.length > MAX_DATEIEN) {
-            fehlerZeigen('Pro Vorgang sind höchstens 2 PDF-Dateien möglich (Anschreiben und Steuerprotokoll). Bitte legen Sie die Dateien für weitere Vorgänge nacheinander ab.');
+            fehlerZeigen('Pro Vorgang sind höchstens 2 PDF-Dateien möglich (Vollständigkeitserklärung und Freizeichnungsprotokoll). Bitte legen Sie die Dateien für weitere Vorgänge nacheinander ab.');
             return;
         }
         auswahl = auswahl.concat(frisch);
@@ -145,7 +145,7 @@
         if (teile.length) box.appendChild(zeile);
         if (antwort.status === 'bestaetigung_noetig') {
             const hinweis = document.createElement('p');
-            hinweis.textContent = 'Bitte prüfen Sie die Angaben: Anschreiben und Protokoll weichen an einer Stelle voneinander ab.';
+            hinweis.textContent = 'Bitte prüfen Sie die Angaben: Vollständigkeitserklärung und Freizeichnungsprotokoll weichen an einer Stelle voneinander ab.';
             box.appendChild(hinweis);
         }
         const aktionen = document.createElement('div');

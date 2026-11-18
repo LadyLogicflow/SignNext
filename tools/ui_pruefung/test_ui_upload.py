@@ -6,7 +6,7 @@ from ui_hilfen import BEREIT, HINWEIS, lauf
 
 PDF_A = {"name": "Anschreiben_Mustermann.pdf", "size": 1200000}
 PDF_B = {"name": "Protokoll_Mustermann.pdf", "size": 800000}
-ERFOLG_TEXT = "„Mustermann_Steuer2025“ wurde angelegt. Erkannt: Anschreiben ✓ · Steuerprotokoll ✓ · 2 Unterschriften Weiter: Angaben prüfen"
+ERFOLG_TEXT = "„Mustermann_Steuer2025“ wurde angelegt. Erkannt: Vollständigkeitserklärung ✓ · Freizeichnungsprotokoll ✓ · 2 Unterschriften Weiter: Angaben prüfen"
 
 
 def uploads(schritt):
@@ -70,10 +70,10 @@ class TestUploadWeg(unittest.TestCase):
     def test_ohne_name_vom_server_wird_nichts_geraten(self):
         antwort = {"status": 201, "body": {"vorgang_id": 9, "status": "bereit", "personen": 1, "dokumente": [{"rolle": "A", "seiten": 2, "stellen": 1}]}}
         o = lauf(seite="/vorgaenge", api={"upload": antwort}, ops=[{"op": "dateien", "dateien": [PDF_B], "warte": 200}, {"op": "klick_id", "id": "btn-upload", "warte": 600}])
-        self.assertEqual(up(o["schritte"][1])["ergebnis"]["text"], "Vorgang 9 wurde angelegt. Erkannt: Steuerprotokoll ✓ · 1 Unterschrift Weiter: Angaben prüfen")
+        self.assertEqual(up(o["schritte"][1])["ergebnis"]["text"], "Vorgang 9 wurde angelegt. Erkannt: Freizeichnungsprotokoll ✓ · 1 Unterschrift Weiter: Angaben prüfen")
 
     def test_dokumenttypen_richtig_benannt_typ_a_ist_das_protokoll_typ_b_das_anschreiben(self):
-        for rollen, erwartet in ((["A"], "Erkannt: Steuerprotokoll ✓"), (["B"], "Erkannt: Anschreiben ✓"), (["A", "B"], "Erkannt: Anschreiben ✓ · Steuerprotokoll ✓"), (["B", "A"], "Erkannt: Anschreiben ✓ · Steuerprotokoll ✓")):
+        for rollen, erwartet in ((["A"], "Erkannt: Freizeichnungsprotokoll ✓"), (["B"], "Erkannt: Vollständigkeitserklärung ✓"), (["A", "B"], "Erkannt: Vollständigkeitserklärung ✓ · Freizeichnungsprotokoll ✓"), (["B", "A"], "Erkannt: Vollständigkeitserklärung ✓ · Freizeichnungsprotokoll ✓")):
             antwort = {"status": 201, "body": {"vorgang_id": 4, "status": "bereit", "personen": 2, "name": "X", "dokumente": [{"rolle": r} for r in rollen]}}
             o = lauf(seite="/vorgaenge", api={"upload": antwort}, ops=[{"op": "dateien", "dateien": [PDF_A], "warte": 200}, {"op": "klick_id", "id": "btn-upload", "warte": 500}])
             self.assertIn(erwartet + " · 2 Unterschriften", up(o["schritte"][1])["ergebnis"]["text"], rollen)
@@ -81,7 +81,7 @@ class TestUploadWeg(unittest.TestCase):
     def test_abweichung_zwischen_den_dokumenten_wird_gesagt(self):
         antwort = {"status": 201, "body": {"vorgang_id": 3, "status": "bestaetigung_noetig", "personen": 2, "dokumente": [{"rolle": "A"}, {"rolle": "B"}], "name": "Muster"}}
         o = lauf(seite="/vorgaenge", api={"upload": antwort}, ops=[{"op": "dateien", "dateien": [PDF_A, PDF_B], "warte": 600}])
-        self.assertIn("Anschreiben und Protokoll weichen an einer Stelle voneinander ab", up(o["schritte"][0])["ergebnis"]["text"])
+        self.assertIn("Vollständigkeitserklärung und Freizeichnungsprotokoll weichen an einer Stelle voneinander ab", up(o["schritte"][0])["ergebnis"]["text"])
 
 
 @unittest.skipUnless(BEREIT, HINWEIS)
@@ -109,7 +109,7 @@ class TestUploadPruefungImBrowser(unittest.TestCase):
         self.assertEqual(self.fehler([{"name": "leer.pdf", "size": 0}]), "„leer.pdf“ ist leer.")
 
     def test_mehr_als_zwei_dateien_werden_nicht_zugeordnet(self):
-        text = "Pro Vorgang sind höchstens 2 PDF-Dateien möglich (Anschreiben und Steuerprotokoll). Bitte legen Sie die Dateien für weitere Vorgänge nacheinander ab."
+        text = "Pro Vorgang sind höchstens 2 PDF-Dateien möglich (Vollständigkeitserklärung und Freizeichnungsprotokoll). Bitte legen Sie die Dateien für weitere Vorgänge nacheinander ab."
         self.assertEqual(self.fehler([PDF_A, PDF_B, {"name": "Dritte.pdf", "size": 1000}]), text)
         o = lauf(seite="/vorgaenge", ops=[{"op": "dateien", "dateien": [PDF_A], "warte": 200}, {"op": "dateien", "dateien": [PDF_B, {"name": "Dritte.pdf", "size": 1000}], "warte": 300}])
         self.assertEqual(up(o["schritte"][1])["fehler"], text)
