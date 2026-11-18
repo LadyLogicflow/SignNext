@@ -22,6 +22,11 @@ GELB = mit_abholung(b=("2026-11-18T09:15:00Z", None))
 ROT_STAND = ("rot", "✕", "Nicht vollständig unterschrieben")
 
 
+def download_adressen(o):
+    """Alle Download-Adressen über alle Schritte (die Abrufe laufen im ersten Schritt, die Speicherung danach)."""
+    return [r["p"] + r["q"] for st in o["schritte"] for r in st["zustand"]["requests"] if "/download/" in r["p"]]
+
+
 def ampel(a):
     return None if a is None else (a["wert"], a["symbol"], a["text"])
 
@@ -97,6 +102,71 @@ class TestAmpelListe(unittest.TestCase):
         self.assertEqual(z["1"]["pille"], "Bereit zum Senden")
         self.assertEqual(z["4"]["pille"], "Teilweise unterschrieben")                                   # die feine Status-Pille bleibt
         self.assertEqual(o["fehler_js"], [])
+
+
+@unittest.skipUnless(BEREIT, HINWEIS)
+class TestAlleHerunterladen(unittest.TestCase):
+    ALLES = {"op": "klick_id", "id": "btn-alles-dl", "warte": 100}
+    WARTEN = {"op": "warten", "warte": 3500}
+
+    def api(self, **mehr):
+        return dict(vorg(ampel="gelb", **FERTIG), dokumente=ZWEI, abholSicht=True, **mehr)
+
+    def test_alle_vier_dateien_nacheinander_ohne_zip(self):
+        o = lauf(seite=SEITE, api=self.api(), ops=[self.ALLES, self.WARTEN])
+        self.assertEqual(v(o, 1)["abholen"]["abrufe"], ["dokument:B", "nachweis:B", "dokument:A", "nachweis:A"])         # je Datei ein Abruf, Reihenfolge Anschreiben, Protokoll
+        self.assertEqual(v(o, 1)["downloads"], ["dokument_Anschreiben_1.pdf", "nachweis_Anschreiben_1.pdf", "dokument_Protokoll_1.pdf", "nachweis_Protokoll_1.pdf"])
+        adressen = download_adressen(o)
+        self.assertEqual(adressen, ["/api/v1/vorgaenge/1/download/dokument?dokument=B", "/api/v1/vorgaenge/1/download/nachweis?dokument=B",
+                                    "/api/v1/vorgaenge/1/download/dokument?dokument=A", "/api/v1/vorgaenge/1/download/nachweis?dokument=A"])
+        self.assertFalse([a for a in adressen if "zip" in a.lower()])
+        a = v(o, 1)["abholen"]
+        self.assertEqual(a["alles"]["gesperrt"], False)
+        self.assertTrue(a["alles"]["fortschritt"].startswith("4 von 4 Dateien wurden an Ihren Browser übergeben."))
+        self.assertIn("laden Sie sie unten einzeln herunter", a["alles"]["fortschritt"])                                     # ehrlicher Hinweis: der Browser kann nachfragen
+        self.assertEqual((a["alles"]["live"], a["alles"]["rolle"]), ("polite", "status"))
+        self.assertEqual(ampel(a["ampel"])[0], "gruen")                                                                      # beide Dokument-PDFs abgeholt, Stand nachgeladen
+        self.assertEqual(o["fehler_js"], [])
+
+    def test_fortschritt_und_abstand_zwischen_den_downloads(self):
+        o = lauf(seite=SEITE, api=self.api(), ops=[self.ALLES, {"op": "warten", "warte": 700}, self.WARTEN])
+        mitten, ende = v(o, 1)["abholen"], v(o, 2)["abholen"]
+        self.assertTrue(mitten["alles"]["gesperrt"])                                                                          # während des Laufs kein zweiter Start
+        self.assertRegex(mitten["alles"]["fortschritt"], r"^Datei \d von 4: .+ wird gespeichert …$")
+        self.assertLess(len(v(o, 1)["downloads"]), 4)                                                                         # 400 ms Abstand: nach 0,8 s noch nicht alle
+        self.assertEqual(len(v(o, 2)["downloads"]), 4)
+        self.assertFalse(ende["alles"]["gesperrt"])
+
+    def test_eine_datei_scheitert_der_rest_laeuft_weiter(self):
+        fehler = {"status": 404, "body": {"error": "nicht_gefunden", "meldung": "Die Datei ist nicht mehr vorhanden."}}
+        o = lauf(seite=SEITE, api=self.api(downloadFehlerDatei=dict(fehler, art="nachweis", rolle="A")), ops=[self.ALLES, self.WARTEN])
+        a = v(o, 1)["abholen"]
+        self.assertEqual(v(o, 1)["downloads"], ["dokument_Anschreiben_1.pdf", "nachweis_Anschreiben_1.pdf", "dokument_Protokoll_1.pdf"])
+        self.assertIn("Nachweis zum Protokoll: Die Datei ist nicht mehr vorhanden.", a["fehler"])
+        self.assertIn("unten einzeln herunter", a["fehler"])
+        self.assertTrue(a["alles"]["fortschritt"].startswith("3 von 4 Dateien"))
+        self.assertEqual(ampel(a["ampel"])[0], "gruen")                                                                      # beide Dokument-PDFs sind da, der fehlende Nachweis ändert das nicht
+
+    def test_fehlt_ein_dokument_bleibt_die_ampel_gelb(self):
+        o = lauf(seite=SEITE, api=self.api(downloadFehlerDatei={"status": 500, "art": "dokument", "rolle": "A", "body": {"meldung": "Fehler"}}), ops=[self.ALLES, self.WARTEN])
+        self.assertEqual(ampel(v(o, 1)["abholen"]["ampel"])[0], "gelb")
+
+    def test_alles_scheitert_es_wird_nichts_vorgetaeuscht(self):
+        o = lauf(seite=SEITE, api=self.api(downloadFehler={"status": 500, "body": {"meldung": "Der Server ist gerade nicht erreichbar."}}), ops=[self.ALLES, self.WARTEN])
+        a = v(o, 1)["abholen"]
+        self.assertEqual(v(o, 1)["downloads"], [])
+        self.assertEqual(a["alles"]["fortschritt"], "Es wurde keine Datei heruntergeladen.")
+        self.assertIn("Der Server ist gerade nicht erreichbar.", a["fehler"])
+
+    def test_ein_dokument_zwei_dateien_und_einzelknoepfe_bleiben(self):
+        o = lauf(seite=SEITE, api=dict(vorg(ampel="gelb", **FERTIG), abholSicht=True), ops=[self.ALLES, self.WARTEN])
+        self.assertEqual(v(o, 1)["downloads"], ["dokument_1.pdf", "nachweis_1.pdf"])
+        adressen = download_adressen(o)
+        self.assertEqual(adressen, ["/api/v1/vorgaenge/1/download/dokument", "/api/v1/vorgaenge/1/download/nachweis"])
+        self.assertTrue(v(o, 1)["abholen"]["einzeln_sichtbar"])
+        mehr = lauf(seite=SEITE, api=self.api(), ops=[])
+        self.assertEqual([b["knoepfe"] for b in v(mehr)["abholen"]["bloecke"]], [["Anschreiben herunterladen", "Nachweis zum Anschreiben herunterladen"], ["Protokoll herunterladen", "Nachweis zum Protokoll herunterladen"]])
+        self.assertEqual(v(mehr)["abholen"]["alles"]["text"], "Alles herunterladen")
 
 
 if __name__ == "__main__":

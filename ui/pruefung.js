@@ -537,6 +537,7 @@ function zeigeAbholen() {
         ? `${mehrere ? 'Alle Dateien' : 'Beide Dateien'} bleiben bis ${frist} hier abrufbar und werden danach automatisch gelöscht.`
         : `${mehrere ? 'Alle Dateien' : 'Beide Dateien'} bleiben hier abrufbar und werden nach Ablauf der Aufbewahrungsfrist automatisch gelöscht.`;
     zeigeFehler('abholen-fehler', '');
+    alleFortschritt('');
     ampelZeigen('abholen-ampel');
     abholenBloecke();
 }
@@ -584,25 +585,93 @@ function abholenBloecke() {
     });
 }
 
+function dateiName(art, rolle, titel) {
+    return rolle ? `${art}_${String(titel || rolle).replace(/[^A-Za-z0-9_-]+/g, '_')}_${vorgangId}.pdf` : `${art}_${vorgangId}.pdf`;
+}
+
+// Holt eine Datei als Blob (ein Abruf; der Server merkt sich "abgeholt am"); Fehler mit der Meldung des Servers
+async function holeDatei(art, rolle, titel) {
+    const res = await fetch(`/api/v1/vorgaenge/${vorgangId}/download/${art}${rolle ? '?dokument=' + encodeURIComponent(rolle) : ''}`, {credentials: 'same-origin'});
+    if (!res.ok) {
+        let daten = {};
+        try { daten = await res.json(); } catch (err) { daten = {}; }
+        throw new Error(daten.meldung || 'Der Download hat nicht geklappt. Bitte versuchen Sie es noch einmal.');
+    }
+    return {blob: await res.blob(), name: dateiName(art, rolle, titel)};
+}
+
+// Löst den Download aus; die Adresse bleibt kurz bestehen (bei mehreren Dateien nacheinander), dann wird sie freigegeben
+function speichereDatei(datei, freigebenNach) {
+    const url = URL.createObjectURL(datei.blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = datei.name;
+    a.click();
+    if (freigebenNach) setTimeout(() => URL.revokeObjectURL(url), freigebenNach);
+    else URL.revokeObjectURL(url);
+}
+
 async function herunterladen(art, rolle, titel) {
     zeigeFehler('abholen-fehler', '');
     try {
-        const res = await fetch(`/api/v1/vorgaenge/${vorgangId}/download/${art}${rolle ? '?dokument=' + encodeURIComponent(rolle) : ''}`, {credentials: 'same-origin'});
-        if (!res.ok) {
-            let daten = {};
-            try { daten = await res.json(); } catch (err) { daten = {}; }
-            throw new Error(daten.meldung || 'Der Download hat nicht geklappt. Bitte versuchen Sie es noch einmal.');
-        }
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = rolle ? `${art}_${String(titel || rolle).replace(/[^A-Za-z0-9_-]+/g, '_')}_${vorgangId}.pdf` : `${art}_${vorgangId}.pdf`;
-        a.click();
-        URL.revokeObjectURL(url);
+        speichereDatei(await holeDatei(art, rolle, titel));
         await abholStandAktualisieren();
     } catch (err) {
         zeigeFehler('abholen-fehler', err.message);
+    }
+}
+
+// ---------- "Alles herunterladen": je Dokument PDF + Nachweis nacheinander (kein ZIP) ----------
+
+const PAUSE_ZWISCHEN_DOWNLOADS_MS = 400;                 // kurzer Abstand, damit der Browser jeden Download als eigenen Klick annimmt
+const URL_FREIGABE_MS = 30000;
+
+const pause = (ms) => new Promise(ok => setTimeout(ok, ms));
+
+// Alle Dateien des Vorgangs in der Reihenfolge Anschreiben (Dokument, Nachweis), Protokoll (Dokument, Nachweis); bei einem Dokument wie die beiden Einzelknöpfe
+function dateienDesVorgangs() {
+    const dok = dokumenteDesVorgangs();
+    if (dok.length > 1) {
+        return dok.flatMap(d => [{art: 'dokument', rolle: d.rolle, titel: d.titel, text: d.titel}, {art: 'nachweis', rolle: d.rolle, titel: d.titel, text: `Nachweis zum ${d.titel}`}]);
+    }
+    return [{art: 'dokument', rolle: null, titel: null, text: 'Dokument'}, {art: 'nachweis', rolle: null, titel: null, text: 'Nachweis'}];
+}
+
+function alleFortschritt(text) {
+    const p = el('alles-fortschritt');
+    p.textContent = text;
+    p.classList.toggle('hidden', !text);
+}
+
+async function alleHerunterladen() {
+    const knopf = el('btn-alles-dl');
+    knopf.disabled = true;
+    zeigeFehler('abholen-fehler', '');
+    const dateien = dateienDesVorgangs();
+    const n = dateien.length;
+    const geholt = [];
+    const fehlgeschlagen = [];
+    try {
+        for (let i = 0; i < n; i++) {
+            alleFortschritt(`Datei ${i + 1} von ${n}: ${dateien[i].text} wird geholt …`);
+            try {
+                geholt.push({datei: dateien[i], inhalt: await holeDatei(dateien[i].art, dateien[i].rolle, dateien[i].titel)});
+            } catch (err) {
+                fehlgeschlagen.push(`${dateien[i].text}: ${err.message}`);
+            }
+        }
+        for (let k = 0; k < geholt.length; k++) {
+            if (k > 0) await pause(PAUSE_ZWISCHEN_DOWNLOADS_MS);
+            alleFortschritt(`Datei ${k + 1} von ${geholt.length}: ${geholt[k].datei.text} wird gespeichert …`);
+            speichereDatei(geholt[k].inhalt, URL_FREIGABE_MS);
+        }
+        if (fehlgeschlagen.length) zeigeFehler('abholen-fehler', `Nicht alle Dateien konnten geholt werden. ${fehlgeschlagen.join(' · ')} Bitte laden Sie diese unten einzeln herunter.`);
+        alleFortschritt(geholt.length
+            ? `${geholt.length} von ${n} Dateien wurden an Ihren Browser übergeben. Fehlt eine Datei (manche Browser fragen, ob mehrere Downloads erlaubt sind), laden Sie sie unten einzeln herunter.`
+            : 'Es wurde keine Datei heruntergeladen.');
+        await abholStandAktualisieren();
+    } finally {
+        knopf.disabled = false;
     }
 }
 
@@ -635,6 +704,7 @@ function bindeEreignisse() {
     el('erinnerungen-aktiv').addEventListener('change', erinnerungenUmschalten);
     el('btn-dl-dokument').addEventListener('click', () => herunterladen('dokument'));
     el('btn-dl-nachweis').addEventListener('click', () => herunterladen('nachweis'));
+    el('btn-alles-dl').addEventListener('click', alleHerunterladen);
     el('btn-abholen-loeschen').addEventListener('click', () => frage(`„${name()}“ endgültig löschen? Die Dokumente und der Nachweis werden entfernt. Das kann nicht rückgängig gemacht werden.`, 'Ja, löschen', () => loeschen('abholen'), true, 'abholen'));
     el('btn-abholen-ja').addEventListener('click', async () => { el('btn-abholen-ja').disabled = true; if (rueckfrageJa) await rueckfrageJa(); });
     el('btn-abholen-nein').addEventListener('click', () => el('abholen-rueckfrage').classList.add('hidden'));
