@@ -149,7 +149,7 @@ class TestEinzelSignatur(B5):
         self.starten()
         j = self.c.get("/api/v1/vorgaenge/%d" % self.vid).get_json()
         self.assertEqual([(d["rolle"], d["titel"], d["erforderlich"], d["unterschrieben"], d["fertig"]) for d in j["dokumente_fortschritt"]],
-                         [("B", "Anschreiben", [1, 2], [], False), ("A", "Protokoll", [1, 2], [], False)])
+                         [("B", "Vollständigkeitserklärung", [1, 2], [], False), ("A", "Freizeichnungsprotokoll", [1, 2], [], False)])
         e = [x for x in self.c.get("/api/v1/vorgaenge").get_json()["vorgaenge"] if x["id"] == self.vid][0]
         self.assertEqual((e["dokumente_gesamt"], e["dokumente_fertig"]), (2, 0))
         self.einloggen()
