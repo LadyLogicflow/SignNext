@@ -22,14 +22,32 @@ class TestName(RouteBasis):
         self.assertEqual(r.status_code, 201, r.get_data(as_text=True))
         return r.get_json()
 
-    def test_name_kommt_aus_dem_protokoll_sonst_dem_anschreiben(self):
-        j = self.hoch([NAME_B, NAME_A])                                                                   # B zuerst, A danach: der Typ kommt aus dem Inhalt
-        self.assertEqual(j["name"], "Protokoll Mustermann Erika")
+    def test_name_ist_der_name_des_mitglieds_aus_dem_pdf(self):
+        j = self.hoch([NAME_B, NAME_A])                                                                   # die Dateinamen sind egal, der Name steht im PDF (catrin 18.11.)
+        self.assertEqual(j["name"], "%s %s" % (pdfs.VORNAME, pdfs.NAME))
         eintrag = self.c.get("/api/v1/vorgaenge").get_json()["vorgaenge"][0]
-        self.assertEqual(eintrag["name"], "Protokoll Mustermann Erika")
-        self.assertEqual(self.c.get("/api/v1/vorgaenge/%d" % j["vorgang_id"]).get_json()["name"], "Protokoll Mustermann Erika")
-        j2 = self.hoch([NAME_B, ""])                                     # Protokoll ohne Namen: Anschreiben
-        self.assertEqual(j2["name"], "Anschreiben Mustermann")
+        self.assertEqual(eintrag["name"], "Quentin Zzyzx")
+        self.assertEqual(self.c.get("/api/v1/vorgaenge/%d" % j["vorgang_id"]).get_json()["name"], "Quentin Zzyzx")
+        r = hochladen(self.c, pdfs.b_pdf(), namen=[NAME_B])                                               # nur das Anschreiben: Name aus dem Anschreiben
+        self.assertEqual(r.get_json()["name"], "Quentin Zzyzx")
+        r = hochladen(self.c, pdfs.a_pdf(), namen=[NAME_A])                                               # nur das Protokoll: erste Person des Protokolls
+        self.assertEqual(r.get_json()["name"], "Quentin Zzyzx")
+
+    def test_ersatz_ist_der_dateiname_wenn_im_pdf_kein_name_steht(self):
+        r = hochladen(self.c, pdfs.b_pdf(weisse_zeile="{mnr}; ; ; {mail}"), namen=[NAME_B])
+        self.assertEqual(r.status_code, 201, r.get_data(as_text=True))
+        self.assertEqual(r.get_json()["name"], "Anschreiben Mustermann")
+        r = hochladen(self.c, pdfs.b_pdf(weisse_zeile="{mnr}; ; ; {mail}"), namen=[""])
+        self.assertIsNone(r.get_json()["name"])
+
+    def test_name_aus_werten_bereinigt(self):
+        f = pdf_eingang.name_aus_werten
+        self.assertEqual(f({"vorname": "Erika", "name": "Muster"}), "Erika Muster")
+        self.assertEqual(f({"name": "Muster"}), "Muster")
+        self.assertEqual(f({"vorname": " Erika\n", "name": "Mu\tster  mann"}), "Erika Mu ster mann")
+        self.assertEqual(len(f({"vorname": "x" * 200, "name": "y" * 200})), 120)
+        for leer in ({}, {"vorname": "", "name": None}, {"vorname": 5}, {"name": "\x00"}):
+            self.assertIsNone(f(leer), leer)
 
     def test_bereinigung(self):
         f = pdf_eingang.name_aus_dateiname
@@ -47,7 +65,7 @@ class TestName(RouteBasis):
         with db.verbindung() as c:
             audit = json.dumps([dict(z) for z in c.execute("SELECT * FROM audit_log")], default=str)
             dok = json.dumps([dict(z) for z in c.execute("SELECT * FROM dokument")], default=str)
-        for geheim in ("Mustermann", "Erika"):
+        for geheim in ("Mustermann", "Erika", pdfs.NAME, pdfs.VORNAME):                                   # weder Dateiname noch Name aus dem PDF
             self.assertNotIn(geheim, audit)
             self.assertNotIn(geheim, dok)
             self.assertNotIn(geheim, self.logtext.getvalue() if hasattr(self, "logtext") else "")
@@ -66,6 +84,7 @@ class TestName(RouteBasis):
             z = dict(c.execute("SELECT * FROM vorgang WHERE id=?", (j["vorgang_id"],)).fetchone())
         self.assertEqual((z["status"], z["name"]), ("geloescht", None))
         self.assertNotIn("Mustermann", self.db_text())
+        self.assertNotIn(pdfs.NAME, self.db_text())
 
     def test_aufbewahrung_und_vertragsende_leeren_den_namen(self):
         import loeschen
