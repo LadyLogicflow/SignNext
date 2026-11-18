@@ -142,7 +142,8 @@ class TestAbschluss(B5):
         self.assertIn("Unterschrift von Person 2", text)
         self.assertRegex(text, r"\d\d\.\d\d\.\d{4} \d\d:\d\d:\d\d (MEZ|MESZ)")
         self.assertIn("nicht kryptografisch signiert", text)
-        self.assertIn("noch nicht freigegeben (Freigabe offen)", text)                # Hinweis im Nachweis, solange die Texte nicht freigegeben sind
+        self.assertNotIn("noch nicht freigegeben", text)                              # Texte sind freigegeben (catrin 18.11.): kein Vorbehalt im Nachweis
+        self.assertNotIn("Freigabe offen", text)
         self.assertIn("SignNext-Datenschutzhinweis-Unterschriftsseite-1.0", text)
         self.assertIn("SignNext-Ausstieg-1.0", text)                                   # die lange Kennung läuft nicht über den Seitenrand (Umbruch)
         for seite in PdfReader(io.BytesIO(nachweis)).pages:
@@ -420,7 +421,7 @@ class TestDownload(B5):
     def test_download_ohne_richtigen_code_gibt_kein_pdf_und_zaehlt_keinen_abruf(self):
         self.abgeschlossen()
         token = self.link_aus_mail()
-        for falsch in ("", "999999", "01.02.60", "01026", "0102601", "abcdef", " 010260"):
+        for falsch in ("", "99999999", "01.02.1960", "0102196", "010219601", "abcdef", " 01021960", "010260"):
             r = self.hole_download(token, code=falsch)
             self.assertEqual(r.status_code, 401, falsch)
             self.assertNotIn(b"%PDF", r.get_data())
@@ -431,7 +432,7 @@ class TestDownload(B5):
     def test_versuch_x_von_5_und_dauerhafte_sperre(self):
         self.abgeschlossen()
         token = self.link_aus_mail()
-        antworten = [self.hole_download(token, code="999999").get_json() for _ in range(5)]
+        antworten = [self.hole_download(token, code="99999999").get_json() for _ in range(5)]
         self.assertEqual([(a["versuch"], a["von"], a["gesperrt"]) for a in antworten], [(1, 5, False), (2, 5, False), (3, 5, False), (4, 5, False), (5, 5, True)])
         r = self.hole_download(token)                                                 # der richtige Code hilft nach der Sperre nicht mehr
         self.assertEqual((r.status_code, r.get_json()["gesperrt"]), (401, True))
@@ -447,9 +448,9 @@ class TestDownload(B5):
         self.abgeschlossen()
         token = self.link_aus_mail()
         for _ in range(3):
-            self.hole_download(token, code="999999")
+            self.hole_download(token, code="99999999")
         self.assertEqual(self.hole_download(token).status_code, 200)
-        self.assertEqual(self.hole_download(token, code="999999").get_json()["versuch"], 4)
+        self.assertEqual(self.hole_download(token, code="99999999").get_json()["versuch"], 4)
 
     def test_unbekannter_link_wird_genauso_gezaehlt_und_gesperrt(self):
         self.abgeschlossen()
@@ -457,14 +458,14 @@ class TestDownload(B5):
         antworten = [self.hole_download(fremd).get_json() for _ in range(6)]
         self.assertEqual([a["versuch"] for a in antworten], [1, 2, 3, 4, 5, 5])
         self.assertEqual([a["gesperrt"] for a in antworten], [False] * 4 + [True, True])
-        bekannt = self.hole_download(self.link_aus_mail(), code="999999").get_json()
+        bekannt = self.hole_download(self.link_aus_mail(), code="99999999").get_json()
         self.assertEqual(set(bekannt), set(antworten[0]))                             # gleiche Form wie bei einem unbekannten Link
 
     def test_download_mail_nennt_den_zweiten_faktor_aber_nie_das_datum(self):
         self.abgeschlossen()
         _, text = self.mails(pdfs.MAIL)[-1]
         self.assertIn("Zum Abruf benötigen Sie wieder das Geburtsdatum der Person, für die das Dokument erstellt wurde", text)
-        self.assertIn("sechs Ziffern: Tag, Monat, zweistelliges Jahr, ohne Punkte", text)
+        self.assertIn("acht Ziffern: Tag, Monat, vierstelliges Jahr, ohne Punkte", text)
         for verboten in (CODE, pdfs.DOB):
             self.assertNotIn(verboten, text)
 
@@ -1124,10 +1125,13 @@ class TestIronyTexte(B5):
             with mock.patch.dict(os.environ, {"SIGNNEXT_IP_SPEICHERUNG": modus}):
                 self.assertIn(soll, texte.laden("1001")["texte"]["datenschutz"], modus)
 
-    def test_kennung_und_freigabe_offen(self):
+    def test_kennung_und_freigabe(self):
         import texte
-        self.assertFalse(texte.freigegeben())
-        self.assertEqual(texte.kennung(), "SignNext-Datenschutzhinweis-Unterschriftsseite-1.0; SignNext-Unterschriftssatz-1.0; SignNext-Zustimmungshaken-1.0; SignNext-Ausstieg-1.0 (Freigabe offen)")
+        self.assertTrue(texte.freigegeben())                                          # catrin 18.11.2026: Mitglieder-Texte freigegeben (texte/FREIGABE = erteilt)
+        self.assertEqual(texte.kennung(), "SignNext-Datenschutzhinweis-Unterschriftsseite-1.0; SignNext-Unterschriftssatz-1.0; SignNext-Zustimmungshaken-1.0; SignNext-Ausstieg-1.0")
+        with mock.patch.object(texte, "ORDNER", self.freigabe_ordner("offen")):                  # der Mechanismus für offene Texte bleibt erhalten
+            self.assertFalse(texte.freigegeben())
+            self.assertTrue(texte.kennung().endswith("SignNext-Ausstieg-1.0 (Freigabe offen)"))
         with mock.patch.object(texte, "ORDNER", self.freigabe_ordner("erteilt")):
             self.assertTrue(texte.freigegeben())
             self.assertNotIn("Freigabe offen", texte.kennung())
@@ -1154,11 +1158,25 @@ class TestIronyTexte(B5):
         self.einloggen()
         self.lesen_n(SEITEN)
         j = self.texte_holen()
-        self.assertFalse(j.get("freigegeben", False))
+        self.assertTrue(j.get("freigegeben", False))
         self.sign(1, j["hash"])
         with db.verbindung() as c:
             kennung = c.execute("SELECT text_kennung FROM unterschrift").fetchone()[0]
-        self.assertIn("Freigabe offen", kennung)
+        self.assertNotIn("Freigabe offen", kennung)
+        self.assertTrue(kennung.endswith("SignNext-Ausstieg-1.0"))
+
+    def test_offene_freigabe_zeigt_den_vorbehalt_im_nachweis(self):
+        import texte
+        with mock.patch.object(texte, "ORDNER", self.freigabe_ordner("offen")):
+            self.starten()
+            self.einloggen()
+            self.lesen_n(SEITEN)
+            h = self.texte_holen()["hash"]
+            self.sign(1, h)
+            self.sign(2, self.texte_holen()["hash"])
+        nachweis = db.dokument_bytes("1001", self.vid, "N")
+        text = "\n".join(p.extract_text() for p in PdfReader(io.BytesIO(nachweis)).pages)
+        self.assertIn("noch nicht freigegeben (Freigabe offen)", text)
 
 
 def texte_ordner():

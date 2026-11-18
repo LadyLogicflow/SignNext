@@ -26,7 +26,7 @@ import unittest
 
 BASIS = "https://signnext.example"
 ORIGIN = {"Origin": BASIS}
-CODE = "010260"                                   # Geburtsdatum aus dem erfundenen Protokoll A: 01.02.1960
+CODE = "01021960"                                   # Geburtsdatum aus dem erfundenen Protokoll A: 01.02.1960
 IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
 SEITEN = 16                                      # B (4) + A (12) zusammengeführt
 _BILDER = {}
@@ -138,7 +138,7 @@ class ZugangBasis(MailBasis):
         return self.texte_holen()["hash"]
 
     def versuche_falsch(self, n, token=None):
-        return [self.pruefen(token=token, code="999999").get_json() for _ in range(n)]
+        return [self.pruefen(token=token, code="99999999").get_json() for _ in range(n)]
 
     def zeit(self, **delta):
         return mock.patch("zugang._jetzt", return_value=datetime.now(timezone.utc) + timedelta(**delta))
@@ -223,7 +223,7 @@ class TestMailtextUndMeldungen(ZugangBasis):
         m, text = self.mail_text(self.srv.nachrichten[0])
         self.assertIn("Haben Sie diese Nachricht nicht erwartet, öffnen Sie den Link bitte nicht und rufen Sie Ihre Beratungsstelle an.", text)
         self.assertIn("Zum Öffnen benötigen Sie das Geburtsdatum der Person, für die das Dokument erstellt wurde, bei Ehepaaren und eingetragenen Lebenspartnerschaften "
-                      "der zuerst genannten Person (sechs Ziffern: Tag, Monat, zweistelliges Jahr, ohne Punkte).", text)
+                      "der zuerst genannten Person (acht Ziffern: Tag, Monat, vierstelliges Jahr, ohne Punkte).", text)
         self.assertNotIn("Ihr Geburtsdatum", text)
         self.assertEqual(m["Subject"], "Ihre Beratungsstelle: Dokument zur Unterschrift bereit")
 
@@ -278,7 +278,8 @@ class TestCode(ZugangBasis):
         self.assertEqual(r.status_code, 200)
         self.assertIn("Bei Ehepaaren und eingetragenen Lebenspartnerschaften ist das die zuerst genannte Person", j["zugangshinweis"])
         self.assertIn("Nach fünf Fehleingaben wird der Link aus Sicherheitsgründen gesperrt", j["zugangshinweis"])
-        self.assertFalse(j["freigegeben"])
+        self.assertIn("acht Ziffern: Tag, Monat, vierstelliges Jahr, ohne Punkte", j["zugangshinweis"])
+        self.assertTrue(j["freigegeben"])
 
     def test_erfolg_und_cookie(self):
         self.starten()
@@ -315,7 +316,7 @@ class TestCode(ZugangBasis):
         self.versuche_falsch(4)
         self.einloggen()
         self.assertEqual(self.link_zeile()["fehlversuche"], 4)                    # der Zähler wird auch bei Erfolg nicht zurückgesetzt
-        self.assertEqual(self.pruefen(code="888888").get_json()["versuch"], 5)
+        self.assertEqual(self.pruefen(code="88888888").get_json()["versuch"], 5)
 
     def test_kein_orakel_unbekanntes_token_antwortet_gleich(self):
         self.starten()
@@ -324,7 +325,7 @@ class TestCode(ZugangBasis):
         self.assertEqual(echt, unbekannt)
         for a in (echt[0], unbekannt[0]):
             self.assertEqual(set(a), {"error", "meldung", "versuch", "von", "gesperrt"})
-        codes = {self.pruefen(token=t, code="999999").status_code for t in ("B" * 43, "", "x" * 500, "ä", self.token)}
+        codes = {self.pruefen(token=t, code="99999999").status_code for t in ("B" * 43, "", "x" * 500, "ä", self.token)}
         self.assertEqual(codes, {401})
 
     def test_abgelaufen_verbraucht_gesperrt_sehen_aus_wie_gesperrt(self):
@@ -339,11 +340,11 @@ class TestCode(ZugangBasis):
         with db.verbindung() as c:
             c.execute("UPDATE link SET verbraucht_am=NULL, gesperrt=1")
         self.assertEqual(self.pruefen().get_json(), erwartet)
-        self.assertEqual(self.pruefen(token="C" * 43, code="999999").get_json()["versuch"], 1)
+        self.assertEqual(self.pruefen(token="C" * 43, code="99999999").get_json()["versuch"], 1)
 
     def test_format_fehler_zaehlen_mit(self):
         self.starten()
-        for i, code in enumerate(["12345", "abcdef", "", "0102601", "01.02.", " 010260", "010260\n"], 1):
+        for i, code in enumerate(["12345", "abcdef", "", "010219601", "01.02.", " 01021960", "01021960\n", "010260", "0102196"], 1):
             r = self.pruefen(code=code)
             self.assertEqual((r.status_code, r.get_json()["versuch"]), (401, min(i, 5)), code)
 
@@ -375,7 +376,7 @@ class TestCode(ZugangBasis):
         def versuch():
             try:
                 c = self.app.test_client()
-                ergebnisse.append(self.pruefen(code="999999", client=c).get_json())
+                ergebnisse.append(self.pruefen(code="99999999", client=c).get_json())
             except Exception as e:                                                  # pragma: no cover
                 fehler.append(e)
         ts = [threading.Thread(target=versuch) for _ in range(14)]
@@ -391,7 +392,7 @@ class TestCode(ZugangBasis):
         self.starten()
         with mock.patch("zugang.IP_LIMIT", 3):
             for i in range(3):
-                self.assertEqual(self.pruefen(code="999999").status_code, 401)
+                self.assertEqual(self.pruefen(code="99999999").status_code, 401)
             r = self.pruefen()                                                       # auch der richtige Code kommt nicht durch
             self.assertEqual((r.status_code, r.get_json()["error"]), (429, "zu_viele_versuche"))
             r = self.pruefen(token="D" * 43)
@@ -400,12 +401,12 @@ class TestCode(ZugangBasis):
             self.assertEqual(r.status_code, 200)
         self.assertEqual(self.link_zeile()["fehlversuche"], 3)                        # 429 zählt nicht als Fehlversuch
         with self.zeit(minutes=11):
-            self.assertEqual(self.pruefen(code="999999").status_code, 401)             # nach dem Zeitfenster wieder möglich
+            self.assertEqual(self.pruefen(code="99999999").status_code, 401)             # nach dem Zeitfenster wieder möglich
 
     def test_ip_nur_als_hmac_und_tabellen_werden_bereinigt(self):
         self.starten()
-        self.pruefen(code="999999", kopf={"X-Forwarded-For": "198.51.100.7"})
-        self.pruefen(token="E" * 43, code="999999")
+        self.pruefen(code="99999999", kopf={"X-Forwarded-For": "198.51.100.7"})
+        self.pruefen(token="E" * 43, code="99999999")
         gesamt = self.intern()
         for ip in ("198.51.100.7", "127.0.0.1"):
             self.assertNotIn(ip, self.db_text().replace("127.0.0.0", ""), ip)
@@ -414,14 +415,14 @@ class TestCode(ZugangBasis):
             self.assertEqual(c.execute("SELECT token_hash FROM zugang_unbekannt").fetchone()[0], hashlib.sha256(("E" * 43).encode()).hexdigest())
         self.assertNotIn("E" * 43, gesamt)
         with self.zeit(days=2):
-            self.pruefen(code="999999")
+            self.pruefen(code="99999999")
         with db.verbindung() as c:
             self.assertEqual(c.execute("SELECT COUNT(*) FROM zugang_unbekannt").fetchone()[0], 0)
             self.assertEqual(c.execute("SELECT COUNT(*) FROM zugang_ip").fetchone()[0], 1)
 
     def test_aufrufprotokoll(self):
         self.starten()
-        self.pruefen(code="999999", kopf={"X-Forwarded-For": "198.51.100.77"})
+        self.pruefen(code="99999999", kopf={"X-Forwarded-For": "198.51.100.77"})
         self.einloggen()
         with db.verbindung() as c:
             zeilen = [dict(z) for z in c.execute("SELECT * FROM zugriff_log ORDER BY id")]
@@ -434,7 +435,7 @@ class TestCode(ZugangBasis):
         self.versuche_falsch(2)
         self.einloggen()
         gesamt = self.intern()
-        for geheim in (self.token, CODE, "999999", pdfs.DOB):
+        for geheim in (self.token, CODE, "99999999", pdfs.DOB):
             self.assertNotIn(geheim, gesamt, geheim)
 
     def test_code_pruefung_nach_schluesselwechsel(self):
@@ -442,7 +443,7 @@ class TestCode(ZugangBasis):
         self.starten()
         with mock.patch.dict(os.environ, {"SIGNNEXT_HAUPTSCHLUESSEL": HK2, "SIGNNEXT_HAUPTSCHLUESSEL_ALT": HK}):
             self.einloggen()
-            self.assertEqual(self.pruefen(code="999999").get_json()["versuch"], 1)
+            self.assertEqual(self.pruefen(code="99999999").get_json()["versuch"], 1)
 
     def test_ohne_hauptschluessel(self):
         self.starten()
@@ -601,7 +602,7 @@ class TestSchritte(ZugangBasis):
         self.assertIn("https://bst.example/datenschutz", t["datenschutz"])
         self.assertIn("§ 126 BGB", t["unterschriftssatz"])
         self.assertEqual(t["haken"], "Ich habe die Datenschutzinformation gelesen und möchte das Dokument unterschreiben.")
-        self.assertTrue("Freigabe offen" in j["kennung"] and j["kennung"].startswith("SignNext-Datenschutzhinweis-Unterschriftsseite-1.0") and j["freigegeben"] is False)
+        self.assertTrue("Freigabe offen" not in j["kennung"] and j["kennung"].startswith("SignNext-Datenschutzhinweis-Unterschriftsseite-1.0") and j["freigegeben"] is True)
         kanonisch = json.dumps({"kennung": j["kennung"], "texte": t}, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         self.assertEqual(j["hash"], hashlib.sha256(kanonisch.encode("utf-8")).hexdigest())
 

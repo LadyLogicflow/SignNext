@@ -21,7 +21,7 @@ TEXT = (
     "Bitte öffnen Sie es über diesen persönlichen Link (7 Tage gültig, nur für Sie bestimmt, bitte nicht weiterleiten):\n"
     "{link}\n\n"
     "Zum Öffnen benötigen Sie das Geburtsdatum der Person, für die das Dokument erstellt wurde, bei Ehepaaren und eingetragenen Lebenspartnerschaften "
-    "der zuerst genannten Person (sechs Ziffern: Tag, Monat, zweistelliges Jahr, ohne Punkte).\n\n"
+    "der zuerst genannten Person (acht Ziffern: Tag, Monat, vierstelliges Jahr, ohne Punkte).\n\n"
     "Haben Sie diese Nachricht nicht erwartet, öffnen Sie den Link bitte nicht und rufen Sie Ihre Beratungsstelle an.\n\n"
     "Wenn Sie nicht unterschreiben möchten oder Fragen haben, wenden Sie sich bitte an Ihre Beratungsstelle.\n"
 )

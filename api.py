@@ -241,7 +241,7 @@ def vorgang_versenden(vorgang_id):
     if link:                                                             # nur Demo: Link, QR und Hinweis für die Anzeige am Bildschirm
         import qr
         ergebnis["demo"] = {"link": link, "qr_svg": qr.svg(link), "ohne_mail": ohne_mail,
-                            "geburtsdatum_hinweis": "Zum Öffnen gibt das Mitglied sein Geburtsdatum ein (sechs Ziffern TTMMJJ)."}
+                            "geburtsdatum_hinweis": "Zum Öffnen gibt das Mitglied sein Geburtsdatum ein (acht Ziffern TTMMJJJJ)."}
     return jsonify(ergebnis)
 
 

@@ -163,7 +163,7 @@ class TestSchluessel(unittest.TestCase):
                 with self.assertRaises(schluessel.HauptschluesselFehlt):
                     schluessel.verschluesseln("1001", "x", "a")
                 with self.assertRaises(schluessel.HauptschluesselFehlt):
-                    schluessel.code_hmac("1001", "010260")
+                    schluessel.code_hmac("1001", "01021960")
 
     def test_ungueltige_beratungsstelle(self):
         for ref in ("../x", "", "a b", "x" * 65):
@@ -182,24 +182,24 @@ class TestSchluessel(unittest.TestCase):
             self.assertEqual(schluessel.entschluesseln("1001", "x", neu), "geheim")   # neu lesbar ohne ALT
 
     def test_code(self):
-        self.assertEqual(schluessel.code_aus_datum("01.02.1960"), "010260")
-        self.assertEqual(schluessel.code_aus_datum(" 31.12.2005 "), "311205")
+        self.assertEqual(schluessel.code_aus_datum("01.02.1960"), "01021960")
+        self.assertEqual(schluessel.code_aus_datum(" 31.12.2005 "), "31122005")
         for schlecht in ("31.02.2020", "1960-02-01", "01.02.60", "", None, "01.01.2999", "01.01.1899", "a", "1.2.1960 ", "01.02.1960.", 5):
             self.assertIsNone(schluessel.code_aus_datum(schlecht), schlecht)
 
     def test_code_hmac_je_beratungsstelle_und_pruefung(self):
-        h1, k1 = schluessel.code_hmac("1001", "010260")
-        h2, _ = schluessel.code_hmac("2002", "010260")
+        h1, k1 = schluessel.code_hmac("1001", "01021960")
+        h2, _ = schluessel.code_hmac("2002", "01021960")
         self.assertNotEqual(h1, h2)
-        self.assertNotIn("010260", h1)
-        self.assertTrue(schluessel.code_pruefen("1001", k1, h1, "010260"))
-        for schlecht in ("010261", "", None, "010260 "):
+        self.assertNotIn("01021960", h1)
+        self.assertTrue(schluessel.code_pruefen("1001", k1, h1, "01021960"))
+        for schlecht in ("01021961", "", None, "01021960 "):
             self.assertFalse(schluessel.code_pruefen("1001", k1, h1, schlecht))
-        self.assertFalse(schluessel.code_pruefen("2002", k1, h1, "010260"))
-        self.assertFalse(schluessel.code_pruefen("1001", "00000000", h1, "010260"))
+        self.assertFalse(schluessel.code_pruefen("2002", k1, h1, "01021960"))
+        self.assertFalse(schluessel.code_pruefen("1001", "00000000", h1, "01021960"))
         with mock.patch.dict(os.environ, {"SIGNNEXT_HAUPTSCHLUESSEL": HK2, "SIGNNEXT_HAUPTSCHLUESSEL_ALT": HK}):
-            self.assertTrue(schluessel.code_pruefen("1001", k1, h1, "010260"))      # Wert vom alten Schlüssel bleibt prüfbar
-            h3, k3 = schluessel.code_hmac("1001", "010260")
+            self.assertTrue(schluessel.code_pruefen("1001", k1, h1, "01021960"))      # Wert vom alten Schlüssel bleibt prüfbar
+            h3, k3 = schluessel.code_hmac("1001", "01021960")
             self.assertNotEqual(k3, k1)
 
     def test_token(self):
@@ -689,7 +689,7 @@ class TestAngaben(MailBasis):
         j = self.ansicht(vid)
         self.assertEqual((j["geburtsdatum"]["wert"], j["geburtsdatum"]["herkunft"], j["geburtsdatum"]["gesetzt"], j["fehlend"]), (None, "manuell", True, []))
         v = db.vorgang_intern("1001", vid)
-        self.assertEqual((v["code_hmac"], v["code_kid"]), schluessel.code_hmac("1001", "030462"))
+        self.assertEqual((v["code_hmac"], v["code_kid"]), schluessel.code_hmac("1001", "03041962"))
         gesamt = self.db_text() + self.db_bytes().decode("latin-1") + self.logtext.getvalue() + json.dumps(self.audit_zeilen())
         for wert in ("03.04.1962", "030462", "1962-04-03"):
             self.assertNotIn(wert, gesamt, wert)
@@ -782,10 +782,10 @@ class TestVersand(MailBasis):
         token = re.search(r"https://signnext\.example/u#([A-Za-z0-9_-]+)", text).group(1)
         self.assertGreaterEqual(len(token), 43)
         # Betreff und Text enthalten nichts über die Person oder die Steuer
-        for wert in pdfs.PERSONENDATEN + ("010260", "Steuer", "Erklärung", "Gesendet-Ordner"):
+        for wert in pdfs.PERSONENDATEN + ("01021960", "Steuer", "Erklärung", "Gesendet-Ordner"):
             self.assertNotIn(wert, m["Subject"] + text, wert)
         self.assertIn("Geburtsdatum", text)
-        self.assertIn("sechs Ziffern", text)
+        self.assertIn("acht Ziffern", text)
         self.assertIn("Ihre Beratungsstelle Beispiel", text)
         # gespeichert ist nur der Hash des Tokens, 7 Tage gültig, einmalig
         zeilen = self.link_zeilen()
@@ -798,7 +798,7 @@ class TestVersand(MailBasis):
         v = db.vorgang_intern("1001", vid)
         self.assertEqual((v["status"], v["email_herkunft"], v["datum_herkunft"], v["personen"], v["personen_herkunft"]), ("versendet", "pdf", "pdf", 2, "pdf"))
         self.assertTrue(v["versendet_am"])
-        self.assertEqual((v["code_hmac"], v["code_kid"]), schluessel.code_hmac("1001", "010260"))
+        self.assertEqual((v["code_hmac"], v["code_kid"]), schluessel.code_hmac("1001", "01021960"))
         self.assertEqual(schluessel.entschluesseln("1001", "mitglied-mail", v["email_enc"]), pdfs.MAIL)
         with db.verbindung() as c:
             vz = [dict(z) for z in c.execute("SELECT * FROM versand")]
@@ -813,7 +813,7 @@ class TestVersand(MailBasis):
         token = re.search(r"/u#([A-Za-z0-9_-]+)", text).group(1)
         antworten = r.get_data(as_text=True) + self.c.get("/api/v1/vorgaenge/%d" % vid).get_data(as_text=True) + self.c.get("/api/v1/vorgaenge/%d/pruefung" % vid).get_data(as_text=True)
         gesamt = antworten + self.db_text() + self.db_bytes().decode("latin-1") + self.logtext.getvalue() + json.dumps(self.audit_zeilen())
-        for geheim in (token, PW, "010260", "/u#"):
+        for geheim in (token, PW, "01021960", "/u#"):
             self.assertNotIn(geheim, gesamt, geheim)
         intern = self.db_text() + self.db_bytes().decode("latin-1") + self.logtext.getvalue() + json.dumps(self.audit_zeilen())
         self.assertNotIn(pdfs.DOB, intern)                                  # die Prüfansicht zeigt das Datum aus dem PDF an, gespeichert wird es nie
@@ -915,7 +915,7 @@ class TestVersand(MailBasis):
         self.c.put("/api/v1/vorgaenge/%d/angaben" % vid, json={"geburtsdatum": "03.04.1962"})
         self.assertEqual(self.senden_ok(vid).status_code, 200)
         v = db.vorgang_intern("1001", vid)
-        self.assertEqual((v["code_hmac"], v["datum_herkunft"]), (schluessel.code_hmac("1001", "030462")[0], "manuell"))
+        self.assertEqual((v["code_hmac"], v["datum_herkunft"]), (schluessel.code_hmac("1001", "03041962")[0], "manuell"))
 
     def test_zustand_bestaetigung_noetig(self):
         srv = self.vorbereiten()
@@ -1082,7 +1082,7 @@ class TestVersand(MailBasis):
         with mock.patch.dict(os.environ, {"SIGNNEXT_HAUPTSCHLUESSEL": HK2, "SIGNNEXT_HAUPTSCHLUESSEL_ALT": HK}):
             self.assertEqual(schluesselwechsel.wechseln(), {"umgeschluesselt": 2, "schon_aktuell": 0})     # Mail-Passwort + Mitglieder-Adresse
             v = db.vorgang_intern("1001", vid)
-            self.assertTrue(schluessel.code_pruefen("1001", v["code_kid"], v["code_hmac"], "010260"))      # der Code bleibt am alten Schlüssel prüfbar
+            self.assertTrue(schluessel.code_pruefen("1001", v["code_kid"], v["code_hmac"], "01021960"))      # der Code bleibt am alten Schlüssel prüfbar
         with mock.patch.dict(os.environ, {"SIGNNEXT_HAUPTSCHLUESSEL": HK2}):
             self.assertEqual(schluessel.entschluesseln("1001", "mitglied-mail", db.vorgang_intern("1001", vid)["email_enc"]), pdfs.MAIL)
 

@@ -90,7 +90,7 @@ class TestDemoAblauf(DemoBasis):
         self.assertEqual(code, 0, ausgabe)
         self.assertRegex(ausgabe, r"Mitglieds-Link:  https://signnext\.example/u#[A-Za-z0-9_-]{43}")
         self.assertIn("01.02.1960", ausgabe)
-        self.assertIn("01.02.60", ausgabe)
+        self.assertIn("eingeben als 01021960", ausgabe)
         self.assertEqual(len(self.srv.nachrichten), n_mails)
         self.assertEqual(self.anzahl("vorgang"), 1)
 

@@ -1,7 +1,7 @@
 """Zugang des Mitglieds zur Unterschriftsseite (ohne Portal-Cookie): Code-Prüfung, Sperre, Sitzung, Schrittfolge, Unterschrift.
 
 Alles Sicherheitsrelevante entscheidet der Server, nicht die Seite:
-- Code ttmmjj gegen den HMAC (konstantzeitig). Jedes vorgelegte Token, auch ein unbekanntes, durchläuft dieselbe Zustandsmaschine mit Fehlversuchszähler:
+- Code ttmmjjjj gegen den HMAC (konstantzeitig). Jedes vorgelegte Token, auch ein unbekanntes, durchläuft dieselbe Zustandsmaschine mit Fehlversuchszähler:
   Antwort immer {"error": "angaben_stimmen_nicht", "versuch": x, "von": 5, "gesperrt": bool}; abgelaufene, verbrauchte und gesperrte Links antworten wie "gesperrt".
   Nach 5 Fehlversuchen ist ein Link DAUERHAFT gesperrt (nichts setzt den Zähler zurück). Grobe Begrenzung je IP (nur HMAC der Adresse).
 - Sitzung: 256-Bit-Zufallswert im Cookie (HttpOnly, Secure, SameSite=Strict), nur der Hash gespeichert, 60 Minuten, an genau einen Link/Vorgang gebunden.
@@ -109,7 +109,7 @@ def _pruefen_intern(token: str, code: str) -> dict:
     jetzt = _jetzt()
     th = schluessel.token_hash(token)
     iph = schluessel.ip_hmac(client_ip())
-    format_ok = bool(re.fullmatch(r"\d{6}", code))
+    format_ok = bool(re.fullmatch(r"\d{8}", code))
     with db.verbindung() as c:
         alt = _zeit(jetzt - timedelta(hours=24))
         c.execute("DELETE FROM zugang_ip WHERE zeit < ?", (alt,))
@@ -121,7 +121,7 @@ def _pruefen_intern(token: str, code: str) -> dict:
         link = c.execute("SELECT l.*, v.status AS vstatus, v.code_hmac AS vcode, v.code_kid AS vkid FROM link l JOIN vorgang v ON v.id=l.vorgang_id WHERE l.token_hash=?", (th,)).fetchone()
         if link is None:
             # Unbekanntes Token: gleiche Zustandsmaschine, gleiche Rechenarbeit, gleiche Antwort.
-            schluessel.code_pruefen("0", schluessel.kid(schluessel.aktuell()), "0" * 64, code if format_ok else "000000")
+            schluessel.code_pruefen("0", schluessel.kid(schluessel.aktuell()), "0" * 64, code if format_ok else "00000000")
             z = c.execute("SELECT versuche FROM zugang_unbekannt WHERE token_hash=?", (th,)).fetchone()
             versuche = z["versuche"] if z else 0
             if versuche >= MAX_VERSUCHE:
@@ -142,7 +142,7 @@ def _pruefen_intern(token: str, code: str) -> dict:
         else:
             tot = None
         if tot:
-            schluessel.code_pruefen(link["mandant_ref"], link["vkid"] or schluessel.kid(schluessel.aktuell()), link["vcode"] or "0" * 64, code if format_ok else "000000")
+            schluessel.code_pruefen(link["mandant_ref"], link["vkid"] or schluessel.kid(schluessel.aktuell()), link["vcode"] or "0" * 64, code if format_ok else "00000000")
             _protokoll(c, link, tot)
             return {"art": "falsch", "versuche": MAX_VERSUCHE, "gesperrt": True}
         ok = format_ok and schluessel.code_pruefen(link["mandant_ref"], link["vkid"], link["vcode"], code)

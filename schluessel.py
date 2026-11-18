@@ -2,7 +2,7 @@
 
 Verschlüsselt werden das SMTP-Passwort und die Mailadresse des Mitglieds (wiederherstellbar, AES-256-GCM mit zufälligem 96-Bit-Nonce je Wert;
 Beratungsstelle und Zweck sind als zusätzliche authentifizierte Daten gebunden, ein Wert lässt sich also nicht in eine andere Beratungsstelle oder ein anderes Feld kopieren). Das Geburtsdatum wird nie
-gespeichert, nur als HMAC des Codes ttmmjj. Link-Token werden nur als SHA-256 gespeichert.
+gespeichert, nur als HMAC des Codes ttmmjjjj. Link-Token werden nur als SHA-256 gespeichert.
 Jeder Wert trägt die Kennung (kid) des Schlüssels, mit dem er erzeugt wurde; so bleiben alte Werte während eines Schlüsselwechsels
 (SIGNNEXT_HAUPTSCHLUESSEL_ALT) lesbar und prüfbar. Fehlt der Hauptschlüssel, gibt es nichts (fail closed, kein Ersatzschlüssel)."""
 import base64
@@ -85,10 +85,10 @@ def umschluesseln(mandant_ref: str, zweck: str, text: str) -> str:
     return verschluesseln(mandant_ref, zweck, entschluesseln(mandant_ref, zweck, text))
 
 
-# --- Geburtsdatum: nur der Code ttmmjj, nur als HMAC ---
+# --- Geburtsdatum: nur der Code ttmmjjjj (acht Ziffern), nur als HMAC ---
 
 def code_aus_datum(text: str) -> str | None:
-    """'TT.MM.JJJJ' → 'ttmmjj' (zweistelliges Jahr). Ungültige, zukünftige oder unplausible Daten → None."""
+    """'TT.MM.JJJJ' → 'ttmmjjjj' (vierstelliges Jahr, acht Ziffern). Ungültige, zukünftige oder unplausible Daten → None."""
     if not isinstance(text, str) or not re.fullmatch(r"\d{2}\.\d{2}\.\d{4}", text.strip()):
         return None
     try:
@@ -97,7 +97,7 @@ def code_aus_datum(text: str) -> str | None:
         return None
     if d.year < 1900 or d > date.today():
         return None
-    return "%02d%02d%02d" % (d.day, d.month, d.year % 100)
+    return "%02d%02d%04d" % (d.day, d.month, d.year)
 
 
 def code_hmac(mandant_ref: str, code: str) -> tuple[str, str]:

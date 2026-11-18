@@ -1,7 +1,7 @@
 """Prüfansicht: was die Beratungsstelle vor dem Versand sieht, und die Angaben, die sie selbst ergänzt.
 
 Name, Geburtsdatum und Mailadresse aus den PDFs werden bei JEDEM Aufruf frisch aus den abgelegten Dateien gelesen und nie gespeichert. Gespeichert werden nur
-Angaben, die die Beratungsstelle selbst macht oder ändert: die Mailadresse verschlüsselt, das Geburtsdatum nur als HMAC des Codes ttmmjj (nie Klartext),
+Angaben, die die Beratungsstelle selbst macht oder ändert: die Mailadresse verschlüsselt, das Geburtsdatum nur als HMAC des Codes ttmmjjjj (nie Klartext),
 die Personenzahl als Zahl; je Angabe die Herkunft (pdf | manuell | abweichend)."""
 import db
 import mailer

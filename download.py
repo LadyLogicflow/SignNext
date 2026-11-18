@@ -1,7 +1,7 @@
 """Download des unterschriebenen Dokuments.
 
 - Mitglied: Link ``/d#<token>`` (das Token steht im Fragment und erreicht den Server nur im Body von POST /api/v1/download). 7 Tage gültig, höchstens 3 Abrufe,
-  jeder Abruf wird protokolliert (gekürzte IP) und löst eine Info an die Beratungsstelle aus (jobs.py). Zweiter Faktor: das Geburtsdatum (ttmmjj) wie beim Öffnen;
+  jeder Abruf wird protokolliert (gekürzte IP) und löst eine Info an die Beratungsstelle aus (jobs.py). Zweiter Faktor: das Geburtsdatum (ttmmjjjj) wie beim Öffnen;
   nach 5 falschen Codes ist der Link dauerhaft gesperrt. Unbekannte, abgelaufene, aufgebrauchte oder gesperrte Links und falsche Codes antworten gleich (401
   angaben_stimmen_nicht mit versuch/von/gesperrt). Antworten sind nie zwischenspeicherbar und nicht für Suchmaschinen bestimmt.
 - Beratungsstelle (angemeldet): unbegrenzt, protokolliert im Audit; Dokument oder Nachweisprotokoll."""
@@ -56,7 +56,7 @@ def _abrufen_intern(token: str, code: str) -> dict:
     jetzt = datetime.now(timezone.utc)
     iph = schluessel.ip_hmac(client_ip())
     th = schluessel.token_hash(token)
-    format_ok = bool(re.fullmatch(r"\d{6}", code))
+    format_ok = bool(re.fullmatch(r"\d{8}", code))
     with db.verbindung() as c:
         c.execute("DELETE FROM zugang_ip WHERE zeit < ?", (_zeit(jetzt - timedelta(hours=24)),))
         c.execute("DELETE FROM zugang_unbekannt WHERE zeit < ?", (_zeit(jetzt - timedelta(hours=24)),))
@@ -67,7 +67,7 @@ def _abrufen_intern(token: str, code: str) -> dict:
         link = c.execute("SELECT l.*, v.status AS vstatus, v.code_hmac AS vcode, v.code_kid AS vkid FROM download_link l JOIN vorgang v ON v.id=l.vorgang_id WHERE l.token_hash=?", (th,)).fetchone()
         if link is None:
             # Unbekanntes Token: gleiche Zustandsmaschine, gleiche Rechenarbeit, gleiche Antwort.
-            schluessel.code_pruefen("0", schluessel.kid(schluessel.aktuell()), "0" * 64, code if format_ok else "000000")
+            schluessel.code_pruefen("0", schluessel.kid(schluessel.aktuell()), "0" * 64, code if format_ok else "00000000")
             z = c.execute("SELECT versuche FROM zugang_unbekannt WHERE token_hash=?", (th,)).fetchone()
             versuche = z["versuche"] if z else 0
             if versuche >= MAX_VERSUCHE:
@@ -78,7 +78,7 @@ def _abrufen_intern(token: str, code: str) -> dict:
         link = dict(link)
         daten = db.dokument_bytes(link["mandant_ref"], link["vorgang_id"], "S") if link["vstatus"] == "abgeschlossen" else None
         if link["gesperrt"] or link["laeuft_ab"] <= _zeit(jetzt) or link["abrufe"] >= link["max_abrufe"] or daten is None:
-            schluessel.code_pruefen(link["mandant_ref"], link["vkid"] or schluessel.kid(schluessel.aktuell()), link["vcode"] or "0" * 64, code if format_ok else "000000")
+            schluessel.code_pruefen(link["mandant_ref"], link["vkid"] or schluessel.kid(schluessel.aktuell()), link["vcode"] or "0" * 64, code if format_ok else "00000000")
             return {"art": "falsch", "versuche": MAX_VERSUCHE, "gesperrt": True}
         if format_ok and schluessel.code_pruefen(link["mandant_ref"], link["vkid"], link["vcode"], code):
             # atomar zählen: zwei gleichzeitige Abrufe können das Limit nicht überschreiten
@@ -98,7 +98,7 @@ def _abrufen_intern(token: str, code: str) -> dict:
 
 @bp.post("/download")
 def mitglied_download():
-    """Body {token, code}: ``code`` = Geburtsdatum wie beim Öffnen (sechs Ziffern ttmmjj). Ohne richtigen Code kein Abruf und kein PDF."""
+    """Body {token, code}: ``code`` = Geburtsdatum wie beim Öffnen (acht Ziffern ttmmjjjj). Ohne richtigen Code kein Abruf und kein PDF."""
     fehler = _origin_pruefen()
     if fehler:
         return fehler

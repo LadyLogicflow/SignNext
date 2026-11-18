@@ -29,7 +29,7 @@ def _demo(argv: list) -> int:
         else:
             e = demo.download_link_erzeugen(int(argv[2]), argv[3] if len(argv) > 3 else "demo")
             print("Download-Link für Vorgang Nr. %d:  %s" % (e["vorgang_id"], e["link"]))
-        print("Geburtsdatum (erfunden):  %s  (eingeben als %s)" % (e["geburtsdatum"], e["code"][:2] + "." + e["code"][2:4] + "." + e["code"][4:]))
+        print("Geburtsdatum (erfunden):  %s  (eingeben als %s)" % (e["geburtsdatum"], e["code"]))
         if not config.basis_url():
             print("Hinweis: SIGNNEXT_BASIS_URL ist nicht gesetzt, vor den Pfad die Adresse der Testinstanz setzen.")
         return 0

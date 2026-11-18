@@ -65,7 +65,7 @@ class TestDemoEndpunkte(DemoMail):
         self.assertTrue(j["link"].startswith("https://signnext.example/u#"))
         self.assertTrue(j["qr_svg"].startswith("<svg"))
         self.assertNotIn("<script", j["qr_svg"])
-        self.assertEqual(len(j["code"]), 6)
+        self.assertEqual(len(j["code"]), 8)
 
     def test_testmail_nur_an_erlaubte_adresse_und_wirklich_gesendet(self):
         r = self.c.post("/api/v1/demo/testmail", json={"an": EXTERN.upper()})
@@ -128,6 +128,7 @@ class TestVersandImDemo(DemoMail):
         self.assertTrue(j["demo"]["qr_svg"].startswith("<svg"))
         self.assertFalse(j["demo"]["ohne_mail"])
         self.assertIn("Geburtsdatum", j["demo"]["geburtsdatum_hinweis"])
+        self.assertIn("acht Ziffern TTMMJJJJ", j["demo"]["geburtsdatum_hinweis"])
         self.assertNotIn("demo_link", j)
 
     def test_nicht_freigegebene_adresse_wird_nicht_gemailt_fallback_ohne_mail(self):
@@ -156,7 +157,7 @@ class TestVersandImDemo(DemoMail):
         self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
         link = r.get_json()["demo"]["link"]
         token = link.split("#", 1)[1]
-        self.assertEqual(self.c.post("/api/v1/zugang/pruefen", json={"token": token, "code": "010260"}, headers={"Origin": "https://signnext.example"}).status_code, 200)
+        self.assertEqual(self.c.post("/api/v1/zugang/pruefen", json={"token": token, "code": "01021960"}, headers={"Origin": "https://signnext.example"}).status_code, 200)
 
     def test_ohne_mail_nur_im_demo_und_nur_als_bool(self):
         vid = self.bereit()

@@ -15,7 +15,7 @@ MAIL = "demo.mitglied@example.org"
 NAME = "Zzyzx"
 VORNAME = "Quentin"
 DOB = "01.02.1960"
-CODE = "010260"
+CODE = "01021960"
 
 
 def _zeile(c, y_top, text, x=62, groesse=9):
