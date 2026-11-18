@@ -136,6 +136,18 @@ CREATE TABLE IF NOT EXISTS sitzung (
     dok_stand TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_sitzung_vorgang ON sitzung(mandant_ref, vorgang_id);
+-- Abholung durch die Beratungsstelle (v0.7.0, Ampel): wann das unterschriebene Dokument bzw. der Nachweis je Dokument erstmals ausgeliefert wurde. Keine Inhalte, keine Namen.
+CREATE TABLE IF NOT EXISTS abholung (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    vorgang_id INTEGER NOT NULL,
+    mandant_ref TEXT NOT NULL,
+    dokument_rolle TEXT NOT NULL,
+    art TEXT NOT NULL,
+    erstmals_am TEXT NOT NULL,
+    letzte_am TEXT NOT NULL,
+    anzahl INTEGER NOT NULL DEFAULT 1,
+    UNIQUE(vorgang_id, dokument_rolle, art)
+);
 -- Handy-Übergabe der Unterschrift (handoff.py): kurzlebig (10 Minuten), das Bild liegt nur verschlüsselt hier und wird nach der Abholung sofort gelöscht.
 CREATE TABLE IF NOT EXISTS handoff (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -468,7 +480,7 @@ def dokument_bytes(mandant_ref: str, vorgang_id: int, rolle: str) -> bytes | Non
 
 
 MANDANTENTABELLEN = ("download_log", "download_link", "erinnerung", "sitzung", "unterschrift", "zugriff_log", "dokument", "link", "versand", "mail_zugang",
-                     "stelle_einstellung", "stelle_tarif", "audit_log", "handoff")
+                     "stelle_einstellung", "stelle_tarif", "audit_log", "handoff", "abholung")
 # Tabellen mit mandant_ref, die bei der Löschung einer Beratungsstelle BLEIBEN: das Löschprotokoll (nur Zahlen, Nachweis der Löschung). Wer das ändern will (Irony prüft),
 # setzt LOESCHPROTOKOLL_BLEIBT auf False: dann wird es wie alle anderen Tabellen mitgelöscht, ohne weitere Änderung.
 LOESCHPROTOKOLL_BLEIBT = True
@@ -543,6 +555,15 @@ def link_status(mandant_ref: str, vorgang_id: int) -> str | None:
     if not zeilen:
         return None
     return _link_status_aus(zeilen[0], jetzt_text())
+
+
+def abholung_vermerken(mandant_ref: str, vorgang_id: int, rolle: str, art: str) -> None:
+    """Hält fest, dass die Beratungsstelle diese Datei (art 'dokument' oder 'nachweis' des Dokuments ``rolle``) bekommen hat: erster und letzter Zeitpunkt, Zahl der Abrufe."""
+    jetzt_text = jetzt()
+    with verbindung() as c:
+        c.execute("INSERT INTO abholung(vorgang_id, mandant_ref, dokument_rolle, art, erstmals_am, letzte_am, anzahl) VALUES (?,?,?,?,?,?,1) "
+                  "ON CONFLICT(vorgang_id, dokument_rolle, art) DO UPDATE SET letzte_am=excluded.letzte_am, anzahl=abholung.anzahl+1",
+                  (int(vorgang_id), mandant_ref, rolle, art, jetzt_text, jetzt_text))
 
 
 def link_laeuft_ab(mandant_ref: str, vorgang_id: int) -> str | None:

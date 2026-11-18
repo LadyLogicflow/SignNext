@@ -36,10 +36,13 @@ def vorgaenge():
     mandant = g.nutzer["mandant_ref"]
     liste = db.vorgaenge_liste(mandant, ohne_geloeschte=True)
     with db.verbindung() as c:
+        abgeholt = dokumente.abholungen(c, mandant)
         for e in liste:                                                      # Fortschritt je Dokument (Einzel-Signatur): Zahlen, kein Personenbezug
-            docs = dokumente.mit_stand(c, mandant, e["id"], dokumente.liste(mandant, e["id"], e["personen"]))
+            docs = dokumente.mit_abholung(dokumente.mit_stand(c, mandant, e["id"], dokumente.liste(mandant, e["id"], e["personen"])), e["id"], abgeholt)
             e["dokumente_gesamt"] = len(docs)
             e["dokumente_fertig"] = sum(1 for d in docs if d["fertig"])
+            e["dokumente_abgeholt"] = sum(1 for d in docs if d["abgeholt_am"])
+            e["ampel"] = dokumente.ampel(e["status"], docs)
     return jsonify({"vorgaenge": liste, "status_texte": STATUS_TEXTE})
 
 
@@ -73,7 +76,9 @@ def vorgang(vorgang_id):
     v["link_laeuft_ab"] = db.link_laeuft_ab(g.nutzer["mandant_ref"], vorgang_id)
     with db.verbindung() as c:
         docs = dokumente.mit_stand(c, g.nutzer["mandant_ref"], vorgang_id, dokumente.liste(g.nutzer["mandant_ref"], vorgang_id, v["personen"]))
-    v["dokumente_fortschritt"] = [{k: d[k] for k in ("rolle", "titel", "erforderlich", "unterschrieben", "fertig")} for d in docs]
+        dokumente.mit_abholung(docs, vorgang_id, dokumente.abholungen(c, g.nutzer["mandant_ref"]))
+    v["dokumente_fortschritt"] = [{k: d[k] for k in ("rolle", "titel", "erforderlich", "unterschrieben", "fertig", "abgeholt_am", "nachweis_abgeholt_am")} for d in docs]
+    v["ampel"] = dokumente.ampel(v["status"], docs)
     v["dokumente"] = [{k: d[k] for k in ("id", "rolle", "seiten", "groesse", "sha256", "stellen")} for d in db.dokumente_liste(g.nutzer["mandant_ref"], vorgang_id)]
     return jsonify(v)
 

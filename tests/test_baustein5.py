@@ -865,7 +865,7 @@ class TestFristen(B5):
             tabellen = [z["name"] for z in c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
             mit = [t for t in tabellen if any(sp["name"] == "vorgang_id" for sp in c.execute("PRAGMA table_info(%s)" % t))]
         ausnahmen = {"vorgang", "versand", "audit_log", "loeschprotokoll"}
-        self.assertEqual(sorted(set(mit) - ausnahmen), sorted(["sitzung", "unterschrift", "dokument", "link", "erinnerung", "download_link", "download_log", "handoff", "handoff_log"]))
+        self.assertEqual(sorted(set(mit) - ausnahmen), sorted(["sitzung", "unterschrift", "dokument", "link", "erinnerung", "download_link", "download_log", "handoff", "handoff_log", "abholung"]))
         self.starten()
         quelle = open(loeschen.__file__, encoding="utf-8").read()
         for t in set(mit) - ausnahmen:

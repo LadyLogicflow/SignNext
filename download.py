@@ -149,6 +149,7 @@ def stelle_download(vorgang_id, art):
     daten = db.dokument_bytes(mandant, vorgang_id, dokumente.ergebnis_rolle(art, rolle))
     if daten is None:
         return jsonify({"error": "nicht_gefunden"}), 404
+    db.abholung_vermerken(mandant, vorgang_id, rolle, art)                          # Ampel: nur was tatsächlich ausgeliefert wird, zählt als abgeholt
     audit("dokument_heruntergeladen", "id=%d art=%s dokument=%s" % (vorgang_id, art, rolle))
     name = "vorgang-%d-%s.pdf" % (vorgang_id, art) if rolle == "M" or len(docs) == 1 else "vorgang-%d-%s-%s.pdf" % (vorgang_id, dokumente.TITEL[rolle].lower(), art)
     return _pdf_antwort(daten, name)

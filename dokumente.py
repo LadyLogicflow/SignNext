@@ -58,6 +58,34 @@ def mit_stand(c, mandant_ref: str, vorgang_id: int, dokumente: list) -> list:
     return dokumente
 
 
+def abholungen(c, mandant_ref: str) -> dict:
+    """{(Vorgang, Dokument-Rolle, art): Zeitpunkt der ersten Abholung} für die Beratungsstelle (art 'dokument' oder 'nachweis')."""
+    return {(z["vorgang_id"], z["dokument_rolle"], z["art"]): z["erstmals_am"]
+            for z in c.execute("SELECT vorgang_id, dokument_rolle, art, erstmals_am FROM abholung WHERE mandant_ref=?", (mandant_ref,))}
+
+
+def mit_abholung(dokumente: list, vorgang_id: int, abgeholt: dict) -> list:
+    """Ergänzt ``abgeholt_am`` (unterschriebenes Dokument) und ``nachweis_abgeholt_am`` je Dokument (None, solange nicht abgeholt)."""
+    for d in dokumente:
+        d["abgeholt_am"] = abgeholt.get((int(vorgang_id), d["rolle"], "dokument"))
+        d["nachweis_abgeholt_am"] = abgeholt.get((int(vorgang_id), d["rolle"], "nachweis"))
+    return dokumente
+
+
+VOLLSTAENDIG_UNTERSCHRIEBEN = ("unterschrieben", "abschluss_laeuft", "abschluss_fehlgeschlagen", "abgeschlossen")
+NOCH_NICHT_VERSENDET = ("neu", "bereit", "bestaetigung_noetig")
+
+
+def ampel(status: str, dokumente: list):
+    """Ampel je Vorgang: None = noch nicht versendet; 'rot' = nicht vollständig unterschrieben (auch teilweise); 'gelb' = vollständig unterschrieben, aber nicht alle
+    Dokumente von der Beratungsstelle abgeholt; 'gruen' = alle Dokumente (PDF, ohne Nachweis) abgeholt. ``dokumente`` mit Abholung (mit_abholung)."""
+    if status in NOCH_NICHT_VERSENDET:
+        return None
+    if status not in VOLLSTAENDIG_UNTERSCHRIEBEN:
+        return "rot"
+    return "gruen" if dokumente and all(d["abgeholt_am"] for d in dokumente) else "gelb"
+
+
 def naechste(dokumente: list):
     """(Dokument, Person), die als Nächstes unterschreiben; (None, None), wenn alle fertig sind. ``dokumente`` mit Stand (mit_stand)."""
     for d in dokumente:
